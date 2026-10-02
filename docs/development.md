@@ -177,7 +177,8 @@ The tests sit at the bottom of each file, in `mod tests`. Two kinds matter most:
   whole analysis on `tests/fixtures/synthetic.json`, a made-up call (menu → user → script → queue →
   agent), and compares the result with `tests/fixtures/synthetic.expected.json`. The expected
   output came from COAT's first (Python) version, so this test proves the analysis still gives the
-  same answers. If you change the analysis on purpose, update the expected file to match and
+  same answers. (One exception: SIP times are now lined up with the log clock instead of the
+  computer's time zone, so the tests give the same result on every machine.) If you change the analysis on purpose, update the expected file to match and
   review the difference.
 
 All numbers in the fixtures come from ranges the Swedish telecom regulator (PTS) reserves for

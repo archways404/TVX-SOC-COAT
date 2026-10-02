@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use chrono::{Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Local, NaiveDateTime, TimeDelta, TimeZone};
 use regex::{Captures, Regex};
 use serde_json::Value;
 
@@ -928,13 +928,21 @@ impl TraceBuilder {
     }
 
     fn sip_messages(&self) -> Vec<SipMessage> {
+        let stamps: Vec<i64> = self.bundle.sessions.iter()
+            .flat_map(|s| s.sipdialog.iter().filter_map(|raw| raw.get("time").and_then(Value::as_i64)))
+            .collect();
+        let offset = self.log_clock_offset(&stamps);
         let mut messages: Vec<SipMessage> = Vec::new();
         for session in &self.bundle.sessions {
             for raw in &session.sipdialog {
                 let Some(stamp) = raw.get("time").and_then(Value::as_i64) else { continue };
-                let Some(time) = Local.timestamp_millis_opt(stamp).single() else { continue };
+                let time = match offset {
+                    Some(offset) => DateTime::from_timestamp_millis(stamp).map(|t| t.naive_utc() + offset),
+                    None => Local.timestamp_millis_opt(stamp).single().map(|t| t.naive_local()),
+                };
+                let Some(time) = time else { continue };
                 messages.push(SipMessage {
-                    time: time.naive_local(),
+                    time,
                     src: or_question(event_text(raw, "from")),
                     dst: or_question(event_text(raw, "to")),
                     label: or_question(event_text(raw, "description")),
@@ -952,6 +960,28 @@ impl TraceBuilder {
             }
         }
         messages
+    }
+
+    /// The time zone of the log lines, as an offset from UTC.
+    ///
+    /// simlog gives SIP messages as UTC timestamps but log lines in the servers' local time.
+    /// The proxy logs each SIP message in the same millisecond, so the right offset is the
+    /// one (in 15-minute steps, -12h to +14h) that makes the most SIP timestamps land exactly
+    /// on a log line. `None` when nothing lines up; the caller then uses this computer's zone.
+    fn log_clock_offset(&self, stamps: &[i64]) -> Option<TimeDelta> {
+        let log_times: HashSet<NaiveDateTime> = self.entries.iter().map(|e| e.time).collect();
+        let mut best: (usize, Option<TimeDelta>) = (0, None);
+        for quarter_hours in -48..=56 {
+            let offset = TimeDelta::minutes(quarter_hours * 15);
+            let hits = stamps.iter()
+                .filter_map(|&ms| DateTime::from_timestamp_millis(ms))
+                .filter(|utc| log_times.contains(&(utc.naive_utc() + offset)))
+                .count();
+            if hits > best.0 {
+                best = (hits, Some(offset));
+            }
+        }
+        best.1
     }
 
     fn caller_and_dialed(&self, sip: &[SipMessage]) -> (String, String) {
