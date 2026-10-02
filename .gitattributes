@@ -1,0 +1,4 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+# Shell scripts must stay LF, also when checked out on the Windows build machine.
+*.sh text eol=lf

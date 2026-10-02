@@ -1,0 +1,12 @@
+# Reports and raw dumps contain unscrubbed call data (phone numbers, names, IVR input).
+reports/
+*.coat.json
+coat-*.html
+
+/target/
+/dist/
+.DS_Store
+
+# left over from the Python proof of concept
+*.egg-info/
+__pycache__/

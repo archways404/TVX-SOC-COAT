@@ -1,0 +1,155 @@
+{
+ "env": "nordic",
+ "base_url": "http://simlog.example",
+ "scrubbed": false,
+ "requested": "ROOT001",
+ "links": {},
+ "sessions": {
+  "ROOT001": {
+   "log": [
+    "Oct  2 10:00:00 sip1 tproxy: 2026-10-02 10:00:00,000 INFO PBX-thread-1 processInvite(Proxy.java:5290) [LID:ROOT001] Incoming SIP-request, INVITE from 10.0.0.1 (dialog state: null):\nINVITE sip:0846500400@10.0.0.2 SIP/2.0\nCSeq: 1 INVITE",
+    "Oct  2 10:00:00 sip1 tproxy: 2026-10-02 10:00:00,010 INFO PBX-thread-1 executePBX(PBX.java:108) [LID:ROOT001] Executing PBX at dialplan,0846500400,1 for SIP/10.0.0.1-0001",
+    "Oct  2 10:00:00 sip1 tproxy: 2026-10-02 10:00:00,011 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] SIP/10.0.0.1-0001 is executing application 'Macro' with args 'refer' (unsubstituted args: 'refer')",
+    "Oct  2 10:00:00 sip1 tproxy: 2026-10-02 10:00:00,020 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Refer.agi: \"0701740605 calling 0846500400\" 0",
+    "Oct  2 10:00:00 sip1 tproxy: 2026-10-02 10:00:00,021 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Refer.agi: \"Active PBX-mode for Main number: Open\" 0",
+    "Oct  2 10:00:00 sip1 tproxy: 2026-10-02 10:00:00,030 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] SIP/10.0.0.1-0001 is executing application 'GotoIf' with args 'false?30:3' (unsubstituted args: '$[${TV-BLACKLISTED} = 1]?30:3')",
+    "Oct  2 10:00:01 sip1 tproxy: 2026-10-02 10:00:01,000 INFO PBX-thread-1 play_file(DialogApplicationData.java:887) [LID:ROOT001] Playing '/sounds/usersound/111' on SIP/10.0.0.1-0001",
+    "Oct  2 10:00:05 sip1 tproxy: 2026-10-02 10:00:05,000 INFO PBX-thread-1 play_file(DialogApplicationData.java:887) [LID:ROOT001] Playing '/sounds/usersound/222' on SIP/10.0.0.1-0001",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,000 INFO PBX-thread-1 run(Proxy.java:1684) [LID:ROOT001] We got a callback that stream 'SIP/10.0.0.1-0001' got the digit '1'",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,001 INFO PBX-thread-1 executePBX(PBX.java:174) [LID:ROOT001] The application changed the dialplan position to refer_1,1,1 from refer_1,t,1 for SIP/10.0.0.1-0001",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,050 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Redirect.agi: \"Redirect.agi:88 Redirecting 0701740605 to 0046846500401 on behalf of 0846500400\" 0",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,051 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Redirect.agi: \"Redirect.agi:90 REASON: unconditional\" 0",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,100 INFO PBX-thread-1 executePBX(PBX.java:108) [LID:ROOT001] Executing PBX at acme_customer_1_main,0846500401,1 for SIP/10.0.0.1-0001",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,101 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] SIP/10.0.0.1-0001 is executing application 'Macro' with args 'anumber' (unsubstituted args: 'anumber')",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,110 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] SIP/10.0.0.1-0001 is executing application 'Set' with args 'CDR(accountcode)=1001' (unsubstituted args: 'CDR(accountcode)=1001')",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,120 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Redirect.agi: \"Redirect.agi:88 Redirecting 0701740605 to 0046846500402 on behalf of 0846500401\" 0",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,121 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Redirect.agi: \"Redirect.agi:90 REASON: unconditional\" 0",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,130 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] SIP/10.0.0.1-0001 is executing application 'Dial' with args 'Local/0046846500402@execute_redirect/n|180|' (unsubstituted args: 'Local/0046846500402@execute_redirect/n|180|')",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,200 INFO PBX-thread-1 executePBX(PBX.java:108) [LID:ROOT001] Executing PBX at acme_customer_1_main,0846500402,1 for Local/0046846500402@execute_redirect-AAAA,2",
+    "Oct  2 10:00:09 sip1 tproxy: 2026-10-02 10:00:09,201 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] Local/0046846500402@execute_redirect-AAAA,2 is executing application 'Macro' with args 'ivrscript' (unsubstituted args: 'ivrscript')",
+    "Oct  2 10:00:09 sip1 scriptserver: 2026-10-02 10:00:09,210 INFO AGIScriptHandler-1 compileScript(CachingScriptCompiler.java:127) [LID:ROOT001] Reusing cached class /opt/tvx/customscripts/acme/AcmeIVR.java",
+    "Oct  2 10:00:20 sip1 scriptserver: 2026-10-02 10:00:20,000 WARN AGIScriptHandler-1 exec(AcmeIVR.java:100) [LID:ROOT001] Backend lookup failed",
+    "Oct  2 10:00:20 sip1 scriptserver: 2026-10-02 10:00:20,001 INFO AGIScriptHandler-1 exec(AcmeIVR.java:120) [LID:ROOT001] No agent found, sending to the queue",
+    "Oct  2 10:00:20 sip1 scriptserver: 2026-10-02 10:00:20,002 INFO AGIScriptHandler-1 redirectCaller(CustomScript.java:188) [LID:ROOT001] Redirecting caller to 0846500403 using context acme_customer_1",
+    "Oct  2 10:00:20 sip1 tproxy: 2026-10-02 10:00:20,100 INFO PBX-thread-1 executePBX(PBX.java:108) [LID:ROOT001] Executing PBX at acme_customer_1_main,0846500403,1 for Local/0046846500402@execute_redirect-AAAA,2",
+    "Oct  2 10:00:20 sip1 tproxy: 2026-10-02 10:00:20,101 INFO PBX-thread-1 execApp(PBX.java:344) [LID:ROOT001] Local/0046846500402@execute_redirect-AAAA,2 is executing application 'Macro' with args 'queue' (unsubstituted args: 'queue')",
+    "Oct  2 10:00:20 sip1 tproxy: 2026-10-02 10:00:20,110 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Queue.agi: \"Active PBX-mode for queue_42(Support): Open\" 0",
+    "Oct  2 10:00:20 sip1 tproxy: 2026-10-02 10:00:20,111 INFO PBX-thread-1 onNewCommand(AGIApp.java:849) [LID:ROOT001] From Queue.agi: \"Arguments: queue_42\" 0",
+    "Oct  2 10:00:20 queuetop1 top: 2026-10-02 10:00:20,200 INFO AGIScriptHandler-1 exec(QueueHandler.java:346) [LID:ROOT001] Starting queue 'queue_42'",
+    "Oct  2 10:00:30 queuetop1 top: 2026-10-02 10:00:30,000 INFO AGIScriptHandler-1 playAnnouncements(QueueHandler.java:583) [LID:ROOT001] Playing position for 0701740605(1) in queue_42 which is 3",
+    "Oct  2 10:01:00 queuetop1 top: 2026-10-02 10:01:00,000 INFO AGIScriptHandler-1 playAnnouncements(QueueHandler.java:583) [LID:ROOT001] Playing position for 0701740605(1) in queue_42 which is 2",
+    "Oct  2 10:01:10 queuetop1 top: 2026-10-02 10:01:10,000 WARN AGIScriptHandler-1 prepareAgents(Queue.java:4563) [LID:ROOT001] Couldn't find any agents to call for entry@1",
+    "Oct  2 10:01:30 queuetop1 top: 2026-10-02 10:01:30,000 INFO AGIScriptHandler-1 playAnnouncements(QueueHandler.java:583) [LID:ROOT001] Playing position for 0701740605(1) in queue_42 which is 1",
+    "Oct  2 10:02:00 queuetop1 top: 2026-10-02 10:02:00,000 INFO AGIScriptHandler-1 lock_agent_for_call_attempt(Queue.java:4628) [LID:ROOT001] Locking agent 0046846500404 for call attempts",
+    "Oct  2 10:02:04 queuetop1 top: 2026-10-02 10:02:04,000 INFO AGIScriptHandler-1 findAnAgent(Queue.java:3737) [LID:ROOT001] 0701740605(1) in queue_42 got answered after 103800 ms by Local/0046846500404@acme_customer_1-BBBB,1 (99)",
+    "Oct  2 10:02:04 queuetop1 top: 2026-10-02 10:02:04,001 INFO AGIScriptHandler-1 leaveQueue(Queue.java:2469) [LID:ROOT001] 0701740605(1) in queue_42 left queue_42 leaveReason: ANSWER",
+    "Oct  2 10:05:00 sip1 tproxy: 2026-10-02 10:05:00,500 INFO PBX-thread-1 removeApplicationSession(Proxy.java:10486) [LID:ROOT001] Call-summary: {\"duration\":300500,\"response\":200,\"errorlogs\":0,\"description\":\"0701740605 calling 0846500400\"}"
+   ],
+   "highLevelEvents": [
+    {
+     "time": "10:00:00,000",
+     "highlight": "zebra",
+     "description": "Incoming call from carrier to 0846500400 (Acme - Main) on sip1"
+    },
+    {
+     "time": "10:02:00,100",
+     "highlight": "green",
+     "description": "Creating new call CHILD01 => Call attempt from queue queue_42 (Support) to agent: 0046846500404"
+    },
+    {
+     "time": "10:05:00,010",
+     "highlight": "zebra",
+     "description": "sip1 (0846500400) hung up."
+    }
+   ],
+   "sipdialog": [
+    {
+     "callId": "c1",
+     "description": "INVITE",
+     "from": "carrier",
+     "to": "sip1",
+     "time": 1790935200000,
+     "message": "INVITE ...\nCSeq: 1 INVITE"
+    },
+    {
+     "callId": "c1",
+     "description": "200 OK",
+     "from": "sip1",
+     "to": "carrier",
+     "time": 1790935200040,
+     "message": "SIP/2.0 200 OK\nCSeq: 1 INVITE"
+    },
+    {
+     "callId": "c1",
+     "description": "INVITE",
+     "from": "carrier",
+     "to": "sip1",
+     "time": 1790935260000,
+     "message": "INVITE ...\nCSeq: 2 INVITE"
+    },
+    {
+     "description": "DTMF: 1",
+     "from": "carrier",
+     "to": "sip1",
+     "time": 1790935209000,
+     "message": "CSeq:1"
+    }
+   ],
+   "meta": {
+    "startdate": "2026-10-02 10:00:00",
+    "oneliner": "0701740605 calling 0846500400"
+   }
+  },
+  "CHILD01": {
+   "log": [
+    "Oct  2 10:02:00 sip1 tproxy: 2026-10-02 10:02:00,100 INFO PBX-thread-1 logFromCorrelation(ApplicationSession.java:425) [LID:CHILD01] assoc:CreatingCallAttempt [LID:CHILD01]  Call attempt from queue queue_42 (Support) to agent: 0046846500404",
+    "Oct  2 10:02:00 edge1 /usr/sbin/kamailio[42]: NOTICE: <script>: [LID:CHILD01] Call to user abc at 10.9.9.9",
+    "Oct  2 10:02:30 queuetop1 top: 2026-10-02 10:02:30,000 ERROR AGIScriptHandler-1 finalize(AGIScriptHandler.java:498) [LID:CHILD01] AGIScriptHandler-9 never had quit() called before it got GC'd"
+   ],
+   "highLevelEvents": [
+    {
+     "time": "10:02:00,100",
+     "highlight": "green",
+     "description": "Coming from ROOT001 => Call attempt from queue queue_42 (Support) to agent: 0046846500404"
+    },
+    {
+     "time": "10:02:03,900",
+     "highlight": "zebra",
+     "description": "0846500404 (Agent Smith) answers the call"
+    },
+    {
+     "time": "10:02:30,000",
+     "highlight": "red",
+     "description": "An error occurred: AGIScriptHandler-9 never had quit() called before it got GC'd"
+    },
+    {
+     "time": "10:05:00,000",
+     "highlight": "zebra",
+     "description": "0846500404 (Agent Smith) hung up."
+    }
+   ],
+   "sipdialog": [
+    {
+     "callId": "c2",
+     "description": "INVITE",
+     "from": "sip1",
+     "to": "u0846500404",
+     "time": 1790935320100,
+     "message": "INVITE\nCSeq: 1 INVITE"
+    },
+    {
+     "callId": "c2",
+     "description": "BYE",
+     "from": "u0846500404",
+     "to": "sip1",
+     "time": 1790935500000,
+     "message": "BYE\nCSeq: 2 BYE"
+    }
+   ],
+   "meta": {
+    "startdate": "2026-10-02 10:02:00",
+    "oneliner": "0701740605 calling 0046846500404, ringing for 3.8 s"
+   }
+  }
+ }
+}

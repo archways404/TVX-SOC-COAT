@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- COAT: a trench coat on a hanger, buttoned with the stations of a call route. -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4c6ef5"/>
+      <stop offset="1" stop-color="#1b2468"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cloth" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eebf7f"/>
+      <stop offset="1" stop-color="#c3843f"/>
+    </linearGradient>
+    <linearGradient id="sleeve" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cf9350"/>
+      <stop offset="1" stop-color="#b0712f"/>
+    </linearGradient>
+    <linearGradient id="lapel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6d4a0"/>
+      <stop offset="1" stop-color="#dca768"/>
+    </linearGradient>
+    <filter id="drop" x="-25%" y="-20%" width="150%" height="145%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#0b1033" flood-opacity="0.5"/>
+    </filter>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#3b2410" flood-opacity="0.4"/>
+    </filter>
+    <clipPath id="plateclip">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+  </defs>
+
+  <!-- background plate (macOS icon grid: 824 px with a 185 px corner) -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#plate)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
+
+  <g clip-path="url(#plateclip)">
+  <!-- hanger: hook, then the arms the coat drapes from -->
+  <g fill="none" stroke="#eef1fa" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 292 V262 c0 -20 32 -26 32 -52 c0 -19 -14 -32 -32 -32 c-17 0 -30 11 -32 28" stroke-width="18"/>
+    <path d="M512 292 L318 374 M512 292 L706 374" stroke-width="20"/>
+  </g>
+
+  <g filter="url(#drop)">
+    <!-- sleeves -->
+    <path d="M330 384 C300 396 284 420 278 452 L240 790 C237 812 250 826 272 826 L314 826 C333 826 343 814 345 796 L378 500 Z" fill="url(#sleeve)"/>
+    <path d="M694 384 C724 396 740 420 746 452 L784 790 C787 812 774 826 752 826 L710 826 C691 826 681 814 679 796 L646 500 Z" fill="url(#sleeve)"/>
+    <!-- body: sloped shoulders from the neck, flaring to the hem -->
+    <path d="M454 324 L570 324 L694 384 L702 600 L730 850 C733 874 718 888 694 888 L330 888 C306 888 291 874 294 850 L322 600 L330 384 Z" fill="url(#cloth)"/>
+    <!-- right half a shade darker, for depth -->
+    <path d="M512 324 L570 324 L694 384 L702 600 L730 850 C733 874 718 888 694 888 L512 888 Z" fill="#6b3f16" opacity="0.13"/>
+  </g>
+
+  <!-- collar opening and lapels -->
+  <path d="M454 326 L512 440 L570 326 Z" fill="#4e2e12"/>
+  <path d="M454 320 L512 440 L512 528 L470 566 L404 420 L426 344 Z" fill="url(#lapel)"/>
+  <path d="M570 320 L512 440 L512 528 L554 566 L620 420 L598 344 Z" fill="#d39a58"/>
+  <path d="M512 440 V888" stroke="#8a5523" stroke-width="5" opacity="0.5"/>
+
+  <!-- belt with buckle -->
+  <path d="M318 676 L706 676 L710 722 L314 722 Z" fill="#a46a2a"/>
+  <rect x="366" y="668" width="58" height="62" rx="10" fill="none" stroke="#f6e1bd" stroke-width="9"/>
+
+  <!-- pocket flaps -->
+  <path d="M350 790 L428 776" stroke="#8a5523" stroke-width="11" stroke-linecap="round"/>
+  <path d="M674 790 L596 776" stroke="#8a5523" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- the buttons are a call route: four stations joined by a line -->
+  <path d="M512 552 V820" stroke="#ffffff" stroke-width="11" stroke-linecap="round" opacity="0.9"/>
+  <g stroke="#ffffff" stroke-width="11" filter="url(#soft)">
+    <circle cx="512" cy="556" r="27" fill="#9775fa"/>
+    <circle cx="512" cy="644" r="27" fill="#ffa94d"/>
+    <circle cx="512" cy="732" r="27" fill="#3bc9db"/>
+    <circle cx="512" cy="820" r="27" fill="#51cf66"/>
+  </g>
+  </g>
+</svg>

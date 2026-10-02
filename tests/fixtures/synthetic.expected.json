@@ -1,0 +1,267 @@
+{
+ "caller": "0701740605",
+ "dialed": "0846500400",
+ "steps": [
+  [
+   "0846500400",
+   "refer",
+   "Acme - Main",
+   "ROOT001",
+   null,
+   [],
+   {
+    "PBX mode": "Open  [Main number]",
+    "context": "dialplan"
+   },
+   [
+    [
+     "10:00:01",
+     "prompt",
+     "/sounds/usersound/111",
+     1
+    ],
+    [
+     "10:00:05",
+     "prompt",
+     "/sounds/usersound/222",
+     1
+    ],
+    [
+     "10:00:09",
+     "dtmf",
+     "1",
+     1
+    ],
+    [
+     "10:00:09",
+     "route",
+     "Menu choice 1 in refer_1 → refer_1,1",
+     1
+    ],
+    [
+     "10:00:09",
+     "route",
+     "Redirect (unconditional): Redirect.agi: 0701740605 → 0046846500401 on behalf of 0846500400",
+     1
+    ]
+   ]
+  ],
+  [
+   "0846500401",
+   "anumber",
+   "",
+   "ROOT001",
+   "keypress 1",
+   [
+    "Menu choice 1 in refer_1 → refer_1,1",
+    "Redirect.agi: 0701740605 → 0046846500401 on behalf of 0846500400"
+   ],
+   {
+    "account": "1001",
+    "context": "acme_customer_1_main"
+   },
+   [
+    [
+     "10:00:09",
+     "route",
+     "Redirect (unconditional): Redirect.agi: 0701740605 → 0046846500402 on behalf of 0846500401",
+     1
+    ],
+    [
+     "10:00:09",
+     "dial",
+     "Dial Local/0046846500402@execute_redirect/n",
+     1
+    ]
+   ]
+  ],
+  [
+   "0846500402",
+   "ivrscript",
+   "",
+   "ROOT001",
+   "unconditional redirect",
+   [
+    "Redirect.agi: 0701740605 → 0046846500402 on behalf of 0846500401",
+    "Dial Local/0046846500402@execute_redirect/n"
+   ],
+   {
+    "custom script": "AcmeIVR",
+    "context": "acme_customer_1_main"
+   },
+   [
+    [
+     "10:00:20",
+     "warn",
+     "Backend lookup failed",
+     1
+    ],
+    [
+     "10:00:20",
+     "say",
+     "No agent found, sending to the queue",
+     1
+    ],
+    [
+     "10:00:20",
+     "route",
+     "Script redirects caller to 0846500403",
+     1
+    ],
+    [
+     "10:00:20",
+     "say",
+     "Redirecting caller to 0846500403 using context acme_customer_1",
+     1
+    ]
+   ]
+  ],
+  [
+   "0846500403",
+   "queue",
+   "Support",
+   "ROOT001",
+   "IVR script redirect",
+   [
+    "redirectCaller: redirecting caller to 0846500403 — after: “No agent found, sending to the queue”"
+   ],
+   {
+    "queue": "queue_42 (Support)",
+    "PBX mode": "Open  [queue_42(Support)]",
+    "context": "acme_customer_1_main"
+   },
+   [
+    [
+     "10:00:20",
+     "queue",
+     "Entered queue_42",
+     1
+    ],
+    [
+     "10:02:00",
+     "queue",
+     "Ringing agent 0846500404",
+     1
+    ]
+   ]
+  ],
+  [
+   "0846500404",
+   "agent",
+   "Agent Smith",
+   "CHILD01",
+   "answered by queue agent after 1m 44s",
+   [
+    "queue_42: answered after 103800 ms by Local/0046846500404@acme_customer_1-BBBB,1"
+   ],
+   {
+    "device": "u0846500404",
+    "rang for": "3.8s"
+   },
+   [
+    [
+     "10:02:30",
+     "error",
+     "AGIScriptHandler-9 never had quit() called before it got GC'd",
+     1
+    ]
+   ]
+  ]
+ ],
+ "outcome": [
+  "Answered by 0846500404 (Agent Smith)",
+  "0846500404 (Agent Smith)",
+  "first BYE: u0846500404 → sip1 at 12:05:00",
+  []
+ ],
+ "issues": [
+  [
+   "ERROR",
+   "top",
+   "finalize(AGIScriptHandler.java:498)",
+   1,
+   false
+  ],
+  [
+   "WARN",
+   "scriptserver",
+   "exec(AcmeIVR.java:100)",
+   1,
+   false
+  ],
+  [
+   "WARN",
+   "top",
+   "prepareAgents(Queue.java:4563)",
+   1,
+   true
+  ]
+ ],
+ "variables": [
+  [
+   "10:00:00.030000",
+   1,
+   "if $[${TV-BLACKLISTED} = 1]",
+   "false → 3",
+   "GotoIf"
+  ],
+  [
+   "10:00:09.110000",
+   2,
+   "CDR(accountcode)",
+   "1001",
+   "Set"
+  ]
+ ],
+ "sip": [
+  [
+   "12:00:00.000000",
+   "carrier",
+   "sip1",
+   "INVITE"
+  ],
+  [
+   "12:00:00.040000",
+   "sip1",
+   "carrier",
+   "200 OK"
+  ],
+  [
+   "12:00:09.000000",
+   "carrier",
+   "sip1",
+   "DTMF: 1"
+  ],
+  [
+   "12:01:00.000000",
+   "carrier",
+   "sip1",
+   "re-INVITE"
+  ],
+  [
+   "12:02:00.100000",
+   "sip1",
+   "u0846500404",
+   "INVITE"
+  ],
+  [
+   "12:05:00.000000",
+   "u0846500404",
+   "sip1",
+   "BYE"
+  ]
+ ],
+ "queues": [
+  [
+   "queue_42",
+   "Support",
+   103800,
+   "0846500404",
+   "ANSWER",
+   3,
+   1,
+   1
+  ]
+ ],
+ "entries": 40
+}

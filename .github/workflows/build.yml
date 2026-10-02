@@ -1,0 +1,149 @@
+# Builds, tests and releases COAT for macOS and Windows.
+#
+#   push or merge to master → picks the next version (packaging/next-version.sh), builds
+#                             both apps, and publishes them as GitHub Release vX.Y.Z
+#   pull request            → builds and tests both apps, no release
+#
+# Version bumps come from commit messages since the last release:
+#   "#major" / "BREAKING CHANGE" → major · "feat…" / "#minor" → minor · anything else → patch
+# Nothing is committed back to master; the version lives in the release tag.
+name: release
+
+on:
+  push:
+    branches: [master]
+    # Docs-only changes don't need a new release.
+    paths-ignore: ["**.md", ".gitignore", ".gitattributes"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The internal simlog addresses are not in the source code. Builds get them from repository
+# secrets (Settings → Secrets and variables → Actions) and compile them in; see docs/releasing.md.
+env:
+  COAT_SIMLOG_NORDIC: ${{ secrets.COAT_SIMLOG_NORDIC }}
+  COAT_SIMLOG_UAE: ${{ secrets.COAT_SIMLOG_UAE }}
+
+# Releases run one at a time, so two quick merges never get the same version number.
+# Pull requests build in parallel, and a newer push to the same PR cancels the older build.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      release: ${{ steps.next.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all history and tags, to find the last release
+      - id: next
+        env:
+          ON_MASTER: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+        run: |
+          version=$(./packaging/next-version.sh)
+          release=$ON_MASTER
+          # Never publish a COAT that can't reach simlog.
+          if [ "$release" = true ] && [ -z "$COAT_SIMLOG_NORDIC" ]; then
+            echo "::error::Repository secret COAT_SIMLOG_NORDIC is not set, so this release could not reach simlog. See docs/releasing.md."
+            exit 1
+          fi
+          # A re-run of an already released commit must not publish it a second time.
+          if [ -n "$(git tag --points-at HEAD 'v*')" ]; then release=false; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          if [ "$release" = true ]; then what="will be released as v$version"; else what="build only, no release"; fi
+          echo "### COAT $version: $what" >> "$GITHUB_STEP_SUMMARY"
+
+  macos:
+    needs: version
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./packaging/set-version.sh "${{ needs.version.outputs.version }}"
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-cargo-${{ github.sha }}
+          restore-keys: macos-cargo-
+      - run: cargo test --release --locked
+      - name: Build COAT.app (Apple Silicon + Intel)
+        run: ./packaging/macos/build-app.sh
+      - name: Smoke test the app the way a double-click runs it
+        run: |
+          app=dist/COAT.app/Contents/MacOS/coat
+          "$app" --version
+          COAT_NO_BROWSER=1 "$app"
+          curl -fsS http://127.0.0.1:7171/api/ping
+          curl -fsS -X POST http://127.0.0.1:7171/api/quit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: COAT-macOS
+          path: dist/COAT-macOS.zip
+          retention-days: 14
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./packaging/set-version.sh "${{ needs.version.outputs.version }}"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ github.sha }}
+          restore-keys: windows-cargo-
+      - run: cargo test --release --locked
+      - run: cargo build --release --locked
+      - run: mkdir -p dist && cp target/release/coat.exe dist/COAT.exe
+      - name: Smoke test the app the way a double-click runs it
+        run: |
+          ./dist/COAT.exe --version
+          COAT_NO_BROWSER=1 ./dist/COAT.exe
+          curl -fsS http://127.0.0.1:7171/api/ping
+          curl -fsS -X POST http://127.0.0.1:7171/api/quit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: COAT-Windows
+          path: dist/COAT.exe
+          retention-days: 14
+
+  release:
+    needs: [version, macos, windows]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish v${{ needs.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          notes=$(printf '%s\n' \
+            "**Mac:** download **COAT-macOS.zip**, double-click it, and drag COAT into Applications." \
+            "**Windows:** download **COAT.exe** and double-click it." \
+            "" \
+            "The first time, your computer asks whether to trust COAT. See the README for the one-time steps.")
+          gh release create "v$VERSION" dist/COAT-macOS.zip dist/COAT.exe \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "COAT $VERSION" --notes "$notes" --generate-notes --latest
