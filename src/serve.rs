@@ -41,6 +41,10 @@ struct Job {
     started_label: String,
     summary: String,
     outcome: String,
+    /// Where the call's sessions live, for "Keep long-term".
+    base_url: String,
+    sessions: Vec<String>,
+    kept_until: Option<String>,
 }
 
 #[derive(Default)]
@@ -168,6 +172,8 @@ fn handle(request: Request, jobs: &Shared, context: &Context) {
             "app": "coat", "version": env!("CARGO_PKG_VERSION"), "channel": crate::update::CHANNEL, "port": context.port,
         })),
         "/api/recent" => json_response(200, recent_json(jobs)),
+        "/api/longterm" if is_post => keep_long_term(jobs, &params),
+        "/api/longterm" => long_term_status(jobs, &params),
         "/api/update" => json_response(200, context.updater.status_json()),
         "/api/update/check" if is_post => {
             let updater = context.updater.clone();
@@ -222,7 +228,7 @@ fn start(jobs: &Shared, params: &HashMap<String, String>) -> Response<std::io::C
     state.jobs.push(Job {
         id, sessionid: sessionid.clone(), scrub, state: JobState::Running, log: vec![format!("Fetching {sessionid} …")],
         error: String::new(), html: None, started: Instant::now(), started_label: Local::now().format("%H:%M").to_string(),
-        summary: String::new(), outcome: String::new(),
+        summary: String::new(), outcome: String::new(), base_url: String::new(), sessions: vec![], kept_until: None,
     });
     let overflow = state.jobs.len().saturating_sub(KEEP_JOBS);
     state.jobs.drain(..overflow);
@@ -245,14 +251,23 @@ fn run_job(jobs: &Shared, id: usize, target: &str, scrub: bool) {
         progress(format!("Fetched in {:.1}s, analysing …", fetched.as_secs_f64()));
         let trace = build_trace(bundle);
         let refresh = format!("/?q={}&fresh=1{}", trace.root, if scrub { "&scrub=1" } else { "" });
-        let html = report::render(&trace, &Options { full_log: false, served: Some(Served { refresh_url: refresh }) });
+        let html = report::render(&trace, &Options { full_log: false, served: Some(Served { refresh_url: refresh, job: id }) });
+        let base_url = trace.bundle.base_url.clone();
+        let sessions: Vec<String> = trace.bundle.sessions.iter().map(|s| s.sessionid.clone()).collect();
+        let kept_until = match report::retention(&trace) {
+            (true, Some(date)) => Some(date.format("%-d %b %Y").to_string()),
+            _ => None,
+        };
         let route = report::route_text(&trace).lines().count();
         let summary = format!("{} → {} · {} hop{}", trace.caller, trace.steps.last().map_or("?", |s| s.number.as_str()),
                               route.saturating_sub(1), if route == 2 { "" } else { "s" });
-        (html, summary, trace.outcome.summary.clone(), format_duration(Some(trace.seconds())))
+        (html, summary, trace.outcome.summary.clone(), format_duration(Some(trace.seconds())), base_url, sessions, kept_until)
     });
     with_job(jobs, id, |job| match result {
-        Ok((html, summary, outcome, duration)) => {
+        Ok((html, summary, outcome, duration, base_url, sessions, kept_until)) => {
+            job.base_url = base_url;
+            job.sessions = sessions;
+            job.kept_until = kept_until;
             job.html = Some(Arc::new(html));
             job.summary = summary;
             job.outcome = format!("{outcome} · {duration}");
@@ -263,6 +278,41 @@ fn run_job(jobs: &Shared, id: usize, target: &str, scrub: bool) {
             job.state = JobState::Failed;
         }
     });
+}
+
+/// Mark every session of a traced call for long-term storage in simlog.
+fn keep_long_term(jobs: &Shared, params: &HashMap<String, String>) -> Response<std::io::Cursor<Vec<u8>>> {
+    let id = params.get("job").and_then(|j| j.parse::<usize>().ok());
+    let found = id.and_then(|id| {
+        let state = jobs.lock().unwrap();
+        state.jobs.iter().find(|j| j.id == id && j.state == JobState::Done).map(|j| (j.base_url.clone(), j.sessions.clone()))
+    });
+    let Some((base_url, sessions)) = found else {
+        return json_response(404, json!({ "error": "That report is no longer in memory. Trace the call again." }));
+    };
+    match source::keep_long_term(&base_url, &sessions) {
+        Ok(results) => {
+            let kept = results.iter().all(|r| r.kept);
+            let soonest = results.iter().map(|r| r.ttl_seconds).min().unwrap_or(0);
+            let until = (Local::now() + chrono::TimeDelta::seconds(soonest as i64)).format("%-d %b %Y").to_string();
+            let warnings: Vec<String> = results.iter().filter(|r| !r.warning.is_empty()).map(|r| r.warning.clone()).collect();
+            if kept {
+                with_job(jobs, id.unwrap(), |job| job.kept_until = Some(until.clone()));
+            }
+            json_response(200, json!({ "kept": kept, "until": until, "sessions": results.len(), "warnings": warnings }))
+        }
+        Err(error) => json_response(502, json!({ "error": error.to_string() })),
+    }
+}
+
+/// Whether a report's call has been kept long-term since the page was made.
+fn long_term_status(jobs: &Shared, params: &HashMap<String, String>) -> Response<std::io::Cursor<Vec<u8>>> {
+    let state = jobs.lock().unwrap();
+    let job = params.get("job").and_then(|j| j.parse::<usize>().ok()).and_then(|id| state.jobs.iter().find(|j| j.id == id));
+    match job {
+        Some(job) => json_response(200, json!({ "kept": job.kept_until.is_some(), "until": job.kept_until })),
+        None => json_response(404, json!({ "error": "unknown report" })),
+    }
 }
 
 fn recent_json(jobs: &Shared) -> serde_json::Value {

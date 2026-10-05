@@ -102,6 +102,8 @@ impl Default for Settings {
 struct Release {
     version: String,
     notes_url: String,
+    /// The file for this computer, e.g. `COAT_v1.5.0.zip`.
+    asset: String,
     asset_url: String,
     sums_url: String,
 }
@@ -237,7 +239,7 @@ impl Updater {
         }
         let Some(staged) = self.staged.lock().unwrap().clone() else { return };
         self.set_status(Status::Installing { version: release.version.clone() });
-        if let Err(message) = apply(&staged, &target) {
+        if let Err(message) = apply(&staged, &target, &release.version) {
             *self.staged.lock().unwrap() = None;
             self.set_status(Status::Failed { message });
         }
@@ -302,13 +304,13 @@ fn latest_release() -> Result<Release, String> {
         })?;
     let json: Value = serde_json::from_str(&body).map_err(|e| format!("unexpected answer from GitHub: {e}"))?;
     match json.as_array() {
-        Some(releases) => newest_for_channel(releases, PREVIEW, asset_name()),
-        None => parse_release(&json, asset_name()),
+        Some(releases) => newest_for_channel(releases, PREVIEW),
+        None => parse_release(&json),
     }
 }
 
 /// From a list of releases, the newest one of the given channel.
-fn newest_for_channel(releases: &[Value], preview: bool, asset: &str) -> Result<Release, String> {
+fn newest_for_channel(releases: &[Value], preview: bool) -> Result<Release, String> {
     releases.iter()
         .filter(|r| !r["draft"].as_bool().unwrap_or(false))
         .filter(|r| {
@@ -316,12 +318,12 @@ fn newest_for_channel(releases: &[Value], preview: bool, asset: &str) -> Result<
             let is_preview = tag.contains("-preview.");
             is_preview == preview && r["prerelease"].as_bool().unwrap_or(false) == preview
         })
-        .filter_map(|r| parse_release(r, asset).ok())
+        .filter_map(|r| parse_release(r).ok())
         .max_by(|a, b| Version::parse(&a.version).cmp(&Version::parse(&b.version)))
         .ok_or_else(|| format!("no {CHANNEL} releases published yet"))
 }
 
-fn parse_release(json: &Value, asset: &str) -> Result<Release, String> {
+fn parse_release(json: &Value) -> Result<Release, String> {
     let tag = json["tag_name"].as_str().ok_or("release without a tag")?;
     let version = tag.trim_start_matches('v').to_string();
     Version::parse(&version).ok_or_else(|| format!("release tag {tag} isn't a version"))?;
@@ -331,7 +333,10 @@ fn parse_release(json: &Value, asset: &str) -> Result<Release, String> {
             .and_then(|a| a["browser_download_url"].as_str())
             .map(str::to_string)
     };
-    let asset_url = find(asset).ok_or_else(|| format!("release {tag} has no {asset}"))?;
+    let names = asset_names(&version);
+    let (asset, asset_url) = names.iter()
+        .find_map(|name| find(name).map(|url| (name.clone(), url)))
+        .ok_or_else(|| format!("release {tag} has no {}", names[0]))?;
     let sums_url = find("SHA256SUMS.txt").ok_or_else(|| format!("release {tag} has no SHA256SUMS.txt"))?;
     if !allowed_url(&asset_url) || !allowed_url(&sums_url) {
         return Err("release files aren't served over HTTPS".into());
@@ -339,20 +344,36 @@ fn parse_release(json: &Value, asset: &str) -> Result<Release, String> {
     Ok(Release {
         version,
         notes_url: json["html_url"].as_str().unwrap_or("").to_string(),
+        asset,
         asset_url,
         sums_url,
     })
 }
 
-/// The release file for this computer and channel.
-fn asset_name() -> &'static str {
-    match (cfg!(target_os = "macos"), cfg!(windows), PREVIEW) {
-        (true, _, false) => "COAT-macOS.zip",
-        (true, _, true) => "COAT-PREVIEW-macOS.zip",
-        (_, true, false) => "COAT.exe",
-        (_, true, true) => "COAT-PREVIEW.exe",
-        _ => "unsupported",
-    }
+/// The release file for this computer: `COAT_v1.5.0.zip` (Mac) or `COAT_v1.5.0.exe` (Windows),
+/// with `_PREVIEW` before the extension for COAT Preview.
+pub fn versioned_file_name(version: &str, preview: bool, windows: bool) -> String {
+    format!("COAT_v{version}{}.{}", if preview { "_PREVIEW" } else { "" }, if windows { "exe" } else { "zip" })
+}
+
+/// The names this computer's file may have in a release: the versioned name, then the name
+/// releases used before 0.5 (`COAT.exe`, `COAT-macOS.zip`, …), still published for older copies.
+fn asset_names(version: &str) -> Vec<String> {
+    let legacy = match (cfg!(windows), PREVIEW) {
+        (false, false) => "COAT-macOS.zip",
+        (false, true) => "COAT-PREVIEW-macOS.zip",
+        (true, false) => "COAT.exe",
+        (true, true) => "COAT-PREVIEW.exe",
+    };
+    vec![versioned_file_name(version, PREVIEW, cfg!(windows)), legacy.to_string()]
+}
+
+/// Where the new `COAT.exe` goes. A file still named after its version (as downloaded,
+/// e.g. `COAT_v1.5.0.exe`) is renamed to the new version; a file the user renamed keeps its name.
+fn windows_destination(exe: &Path, current: &str, new: &str, preview: bool) -> PathBuf {
+    let named_after_version = exe.file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(&versioned_file_name(current, preview, true)));
+    if named_after_version { exe.with_file_name(versioned_file_name(new, preview, true)) } else { exe.to_path_buf() }
 }
 
 fn download(url: &str) -> Result<Vec<u8>, String> {
@@ -484,7 +505,7 @@ fn windows_sibling(exe: &Path, suffix: &str) -> PathBuf {
 /// so the final swap is an instant rename). Returns the path of the new program.
 fn stage(release: &Release, target: &Target) -> Result<PathBuf, String> {
     let sums = String::from_utf8_lossy(&download(&release.sums_url)?).into_owned();
-    let expected = expected_sha256(&sums, asset_name()).ok_or("SHA256SUMS.txt doesn't list this computer's file")?;
+    let expected = expected_sha256(&sums, &release.asset).ok_or("SHA256SUMS.txt doesn't list this computer's file")?;
     let bytes = download(&release.asset_url)?;
     let actual = sha256_hex(&bytes);
     if actual != expected {
@@ -495,7 +516,7 @@ fn stage(release: &Release, target: &Target) -> Result<PathBuf, String> {
             let dir = mac_staging_dir(bundle);
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).map_err(|e| format!("can't prepare the update: {e}"))?;
-            let zip = dir.join(asset_name());
+            let zip = dir.join(&release.asset);
             std::fs::write(&zip, &bytes).map_err(|e| format!("can't save the update: {e}"))?;
             let status = std::process::Command::new("ditto").arg("-x").arg("-k").arg(&zip).arg(&dir).status()
                 .map_err(|e| format!("can't unpack the update: {e}"))?;
@@ -529,19 +550,21 @@ fn staged_program(staged: &Path) -> PathBuf {
 }
 
 /// Swap the new version in and start it. Exits this process on success.
-fn apply(staged: &Path, target: &Target) -> Result<(), String> {
-    let (installed, aside) = match target {
-        Target::MacApp { bundle } => (bundle.clone(), mac_old_bundle(bundle)),
-        Target::WindowsExe { exe } => (exe.clone(), windows_sibling(exe, "old")),
+fn apply(staged: &Path, target: &Target, new_version: &str) -> Result<(), String> {
+    let (installed, aside, destination) = match target {
+        Target::MacApp { bundle } => (bundle.clone(), mac_old_bundle(bundle), bundle.clone()),
+        Target::WindowsExe { exe } => {
+            (exe.clone(), windows_sibling(exe, "old"), windows_destination(exe, VERSION, new_version, PREVIEW))
+        }
         Target::Unsupported(reason) => return Err(reason.clone()),
     };
     let _ = if aside.is_dir() { std::fs::remove_dir_all(&aside) } else { std::fs::remove_file(&aside) };
     std::fs::rename(&installed, &aside).map_err(|e| format!("can't move the old COAT aside: {e}"))?;
-    if let Err(error) = std::fs::rename(staged, &installed) {
+    if let Err(error) = std::fs::rename(staged, &destination) {
         let _ = std::fs::rename(&aside, &installed);
         return Err(format!("can't move the new COAT into place: {error}"));
     }
-    crate::app::spawn_background(&staged_program(&installed), &[("COAT_TAKEOVER", "1")])
+    crate::app::spawn_background(&staged_program(&destination), &[("COAT_TAKEOVER", "1")])
         .map_err(|e| format!("installed, but couldn't restart: {e}. Open COAT again."))?;
     thread::sleep(Duration::from_millis(200));
     std::process::exit(0);
@@ -556,7 +579,15 @@ pub fn clean_up_after_update() {
             .map(|bundle| vec![mac_old_bundle(bundle), mac_staging_dir(bundle)])
             .unwrap_or_default()
     } else if cfg!(windows) {
-        vec![windows_sibling(&exe, "old"), windows_sibling(&exe, "new")]
+        // The previous version may have had another name (COAT_v1.4.0.exe → COAT_v1.5.0.exe), so
+        // look for any COAT…old.exe / COAT…new.exe next to this one.
+        exe.parent().and_then(|dir| std::fs::read_dir(dir).ok()).into_iter().flatten().flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.file_name().is_some_and(|n| {
+                let n = n.to_string_lossy().to_ascii_lowercase();
+                n.starts_with("coat") && (n.ends_with(".old.exe") || n.ends_with(".new.exe"))
+            }))
+            .collect()
     } else {
         vec![]
     };
@@ -639,8 +670,9 @@ mod tests {
 
     #[test]
     fn each_channel_picks_its_own_newest_release() {
-        let release = |tag: &str, pre: bool, asset: &str| json!({"tag_name": tag, "prerelease": pre, "html_url": "",
-            "assets": [{"name": asset, "browser_download_url": format!("https://example.test/{tag}/{asset}")},
+        let release = |tag: &str, pre: bool, _: &str| json!({"tag_name": tag, "prerelease": pre, "html_url": "",
+            "assets": [{"name": versioned_file_name(tag.trim_start_matches('v'), pre, cfg!(windows)),
+                        "browser_download_url": format!("https://example.test/{tag}/file")},
                        {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/SHA256SUMS.txt"}]});
         let releases = vec![
             release("v0.4.0-preview.2", true, "COAT-PREVIEW.exe"),
@@ -648,9 +680,36 @@ mod tests {
             release("v0.3.0", false, "COAT.exe"),
             release("v0.3.1", false, "COAT.exe"),
         ];
-        assert_eq!(newest_for_channel(&releases, true, "COAT-PREVIEW.exe").unwrap().version, "0.4.0-preview.10");
-        assert_eq!(newest_for_channel(&releases, false, "COAT.exe").unwrap().version, "0.3.1");
-        assert!(newest_for_channel(&releases[2..], true, "COAT-PREVIEW.exe").is_err());
+        // Which channel's files exist depends on what this build is; only the channel filter matters here.
+        let preview = newest_for_channel(&releases, true);
+        let stable = newest_for_channel(&releases, false);
+        if PREVIEW {
+            assert_eq!(preview.unwrap().version, "0.4.0-preview.10");
+            assert!(stable.is_err(), "stable releases don't carry preview files");
+        } else {
+            assert_eq!(stable.unwrap().version, "0.3.1");
+            assert!(preview.is_err(), "preview releases don't carry stable files");
+        }
+        assert!(newest_for_channel(&releases[2..], true).is_err());
+    }
+
+    #[test]
+    fn file_names_carry_the_version() {
+        assert_eq!(versioned_file_name("1.5.0", false, false), "COAT_v1.5.0.zip");
+        assert_eq!(versioned_file_name("1.5.0", false, true), "COAT_v1.5.0.exe");
+        assert_eq!(versioned_file_name("1.5.1-preview.2", true, true), "COAT_v1.5.1-preview.2_PREVIEW.exe");
+        assert_eq!(versioned_file_name("1.5.1-preview.2", true, false), "COAT_v1.5.1-preview.2_PREVIEW.zip");
+    }
+
+    #[test]
+    fn windows_file_named_after_its_version_is_renamed_on_update() {
+        let dir = Path::new("C:/Users/x/Desktop");
+        assert_eq!(windows_destination(&dir.join("COAT_v1.4.0.exe"), "1.4.0", "1.5.0", false), dir.join("COAT_v1.5.0.exe"));
+        assert_eq!(windows_destination(&dir.join("coat_v1.4.0.exe"), "1.4.0", "1.5.0", false), dir.join("COAT_v1.5.0.exe"));
+        assert_eq!(windows_destination(&dir.join("COAT.exe"), "1.4.0", "1.5.0", false), dir.join("COAT.exe"));
+        assert_eq!(windows_destination(&dir.join("My COAT.exe"), "1.4.0", "1.5.0", false), dir.join("My COAT.exe"));
+        assert_eq!(windows_destination(&dir.join("COAT_v1.5.1-preview.1_PREVIEW.exe"), "1.5.1-preview.1", "1.5.1-preview.2", true),
+                   dir.join("COAT_v1.5.1-preview.2_PREVIEW.exe"));
     }
 
     #[test]
@@ -661,14 +720,21 @@ mod tests {
             "assets": [
                 {"name": "COAT-macOS.zip", "browser_download_url": "https://example.test/COAT-macOS.zip"},
                 {"name": "COAT.exe", "browser_download_url": "https://example.test/COAT.exe"},
+                {"name": "COAT-PREVIEW-macOS.zip", "browser_download_url": "https://example.test/COAT-PREVIEW-macOS.zip"},
+                {"name": "COAT-PREVIEW.exe", "browser_download_url": "https://example.test/COAT-PREVIEW.exe"},
                 {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/SHA256SUMS.txt"}
             ]
         });
-        let release = parse_release(&json, "COAT.exe").unwrap();
+        let release = parse_release(&json).unwrap();
         assert_eq!(release.version, "0.3.1");
-        assert_eq!(release.asset_url, "https://example.test/COAT.exe");
+        let legacy = match (cfg!(windows), PREVIEW) {
+            (true, false) => "COAT.exe",
+            (true, true) => "COAT-PREVIEW.exe",
+            (false, false) => "COAT-macOS.zip",
+            (false, true) => "COAT-PREVIEW-macOS.zip",
+        };
+        assert_eq!(release.asset, legacy, "releases before 0.5 only have the old names");
         assert_eq!(release.sums_url, "https://example.test/SHA256SUMS.txt");
-        assert!(parse_release(&json, "COAT-linux.tar.gz").is_err());
     }
 
     #[test]
@@ -676,7 +742,7 @@ mod tests {
         let json = json!({"tag_name": "v1.0.0", "assets": [
             {"name": "COAT.exe", "browser_download_url": "http://evil.test/COAT.exe"},
             {"name": "SHA256SUMS.txt", "browser_download_url": "http://evil.test/SHA256SUMS.txt"}]});
-        assert!(parse_release(&json, "COAT.exe").is_err());
+        assert!(parse_release(&json).is_err());
         assert!(allowed_url("http://127.0.0.1:8765/COAT.exe"));
         assert!(!allowed_url("http://example.test/COAT.exe"));
     }

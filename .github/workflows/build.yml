@@ -128,13 +128,13 @@ jobs:
       - name: Test that an old version updates itself to a new one
         run: ./packaging/test-update.sh
       - run: cargo build --release --locked
-      - name: Name the program for its channel
+      - name: Name the program after its version and channel
         run: |
-          if [ "$COAT_CHANNEL" = preview ]; then name=COAT-PREVIEW.exe; else name=COAT.exe; fi
-          mkdir -p dist && cp target/release/coat.exe "dist/$name"
+          if [ "$COAT_CHANNEL" = preview ]; then suffix=_PREVIEW; else suffix=; fi
+          mkdir -p dist && cp target/release/coat.exe "dist/COAT_v${{ needs.version.outputs.version }}$suffix.exe"
       - name: Smoke test the app the way a double-click runs it
         run: |
-          if [ "$COAT_CHANNEL" = preview ]; then exe=dist/COAT-PREVIEW.exe; port=7191; else exe=dist/COAT.exe; port=7171; fi
+          exe=$(ls dist/COAT_v*.exe); port=$([ "$COAT_CHANNEL" = preview ] && echo 7191 || echo 7171)
           "./$exe" --version
           COAT_NO_BROWSER=1 "./$exe"
           curl -fsS "http://127.0.0.1:$port/api/ping"
@@ -151,6 +151,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      # Also publish the files under the names releases used before 0.5 (COAT.exe, COAT-macOS.zip, …),
+      # so copies of COAT 0.4 and older can still update themselves. Set to "false" once nobody
+      # runs those versions any more.
+      LEGACY_FILE_NAMES: "true"
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -159,9 +165,13 @@ jobs:
       - name: Publish v${{ needs.version.outputs.version }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
         run: |
           cd dist
+          if [ "$COAT_CHANNEL" = preview ]; then suffix=_PREVIEW legacy=COAT-PREVIEW; else suffix= legacy=COAT; fi
+          if [ "$LEGACY_FILE_NAMES" = true ]; then
+            cp "COAT_v$VERSION$suffix.zip" "$legacy-macOS.zip"
+            cp "COAT_v$VERSION$suffix.exe" "$legacy.exe"
+          fi
           # Checksums let installed apps verify an update before installing it.
           sha256sum -- *.zip *.exe > SHA256SUMS.txt
           if [ "$COAT_CHANNEL" = preview ]; then
@@ -170,20 +180,53 @@ jobs:
               "**This is a preview build** from the \`preview\` branch: newer, and less tested than the stable release." \
               "It's a separate app (green, called COAT Preview) that you can install next to COAT." \
               "" \
-              "**Mac:** download **COAT-PREVIEW-macOS.zip**, double-click it, and drag COAT Preview into Applications." \
-              "**Windows:** download **COAT-PREVIEW.exe** and double-click it." \
+              "**Mac:** download **COAT_v${VERSION}_PREVIEW.zip**, double-click it, and drag COAT Preview into Applications." \
+              "**Windows:** download **COAT_v${VERSION}_PREVIEW.exe** and double-click it." \
+              "**Homebrew:** \`brew install --cask ${GITHUB_REPOSITORY_OWNER}/tap/coat@preview\`" \
               "" \
               "Already using COAT Preview? It updates itself to new previews.")
           else
             title="COAT $VERSION"; kind=(--latest)
             notes=$(printf '%s\n' \
-              "**Mac:** download **COAT-macOS.zip**, double-click it, and drag COAT into Applications." \
-              "**Windows:** download **COAT.exe** and double-click it." \
+              "**Mac:** download **COAT_v${VERSION}.zip**, double-click it, and drag COAT into Applications." \
+              "**Windows:** download **COAT_v${VERSION}.exe** and double-click it." \
+              "**Homebrew:** \`brew install --cask ${GITHUB_REPOSITORY_OWNER}/tap/coat\`" \
               "" \
               "The first time, your computer asks whether to trust COAT. See the README for the one-time steps." \
               "" \
               "Already using COAT? It updates itself: look for \"Update ready\" in the sidebar.")
           fi
+          if [ "$LEGACY_FILE_NAMES" = true ]; then
+            notes="$notes"$'\n\n'"(\`$legacy-macOS.zip\` and \`$legacy.exe\` are the same files under their old names, for COAT 0.4 and older.)"
+          fi
           gh release create "v$VERSION" *.zip *.exe SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "$title" --notes "$notes" --generate-notes "${kind[@]}"
+
+      # Keeps `brew install --cask <owner>/tap/coat` on the newest release. Needs the repository
+      # <owner>/homebrew-tap and a secret HOMEBREW_TAP_TOKEN that may push to it (docs/releasing.md).
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/homebrew
+          path: source
+      - name: Update the Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::notice::No HOMEBREW_TAP_TOKEN secret, so the Homebrew tap wasn't updated. See docs/releasing.md."
+            exit 0
+          fi
+          if [ "$COAT_CHANNEL" = preview ]; then suffix=_PREVIEW cask=coat@preview; else suffix= cask=coat; fi
+          sha=$(grep " COAT_v$VERSION$suffix.zip\$" dist/SHA256SUMS.txt | cut -d' ' -f1)
+          tap="https://x-access-token:$TAP_TOKEN@github.com/$GITHUB_REPOSITORY_OWNER/homebrew-tap.git"
+          git clone --depth 1 "$tap" tap
+          mkdir -p tap/Casks
+          ./source/packaging/homebrew/write-cask.sh "$COAT_CHANNEL" "$VERSION" "$sha" "$GITHUB_REPOSITORY" > "tap/Casks/$cask.rb"
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "Casks/$cask.rb"
+          git diff --cached --quiet && { echo "cask already up to date"; exit 0; }
+          git commit -m "$cask $VERSION"
+          git push

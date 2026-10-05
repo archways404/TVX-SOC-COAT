@@ -1,13 +1,15 @@
 # Releasing
 
-New versions of COAT are built and published **automatically**. Merge to `master` and, a few
-minutes later, a new release with the Mac and Windows apps appears on the
-[Releases page](https://github.com/archways404/TVX-SOC-COAT/releases). This page explains what happens,
-how version numbers are chosen, and the one-time setup.
+New versions of COAT are built and published **automatically**. Merge to `preview` for a
+pre-release, or to `master` for a release, and a few minutes later the Mac and Windows apps appear
+on the [Releases page](https://github.com/archways404/TVX-SOC-COAT/releases). This page explains how
+to ship a change, how version numbers are chosen, what the workflow does, and the one-time setup.
 
 - [Two channels: stable and preview](#two-channels-stable-and-preview)
-- [What happens on each merge](#what-happens-on-each-merge)
+- [How to ship a change](#how-to-ship-a-change)
 - [Version numbers](#version-numbers)
+- [Release files](#release-files)
+- [What happens on each merge](#what-happens-on-each-merge)
 - [One-time setup](#one-time-setup)
 - [Day to day](#day-to-day)
 - [Signing the apps (future)](#signing-the-apps-future)
@@ -18,8 +20,8 @@ COAT is released on two channels, each from its own branch:
 
 | Branch | Channel | Release | Files | App |
 |---|---|---|---|---|
-| `master` | stable | `v1.5.0`, marked **Latest** | `COAT-macOS.zip`, `COAT.exe` | COAT (blue) |
-| `preview` | preview | `v1.5.0-preview.3`, marked **Pre-release** | `COAT-PREVIEW-macOS.zip`, `COAT-PREVIEW.exe` | COAT Preview (green) |
+| `master` | stable | `v1.5.0`, marked **Latest** | `COAT_v1.5.0.zip`, `COAT_v1.5.0.exe` | COAT (blue) |
+| `preview` | preview | `v1.5.0-preview.3`, marked **Pre-release** | `COAT_v1.5.0-preview.3_PREVIEW.zip`, `…_PREVIEW.exe` | COAT Preview (green) |
 
 The idea: merge work into `preview` first. Every merge there publishes a pre-release that a few
 people try out. When it's good, merge `preview` into `master` to release it to everyone.
@@ -30,6 +32,72 @@ PREVIEW label, its own port (7191 instead of 7171) and its own settings. It upda
 previews, and COAT only to newer stable releases.
 
 To start using the channel, create the branch once: `git switch -c preview && git push -u origin preview`.
+
+## How to ship a change
+
+```
+ feature branch ──PR──►  preview  ──PR──►  master
+                          │                  │
+                          ▼                  ▼
+                 v1.5.0-preview.1      v1.5.0 (Latest)
+                 v1.5.0-preview.2
+```
+
+### A normal change
+
+1. Branch off `preview`: `git switch preview && git pull && git switch -c fix-queue-chart`.
+2. Commit, push, and open a pull request **into `preview`**. The pull request builds and tests both
+   apps (as COAT Preview), so problems show up before merging.
+3. Merge it. A pre-release, for example `v1.5.0-preview.1`, appears a few minutes later. Everyone
+   running COAT Preview gets it automatically.
+4. Repeat for more changes; each merge makes the next preview (`-preview.2`, `-preview.3`, …).
+5. When `preview` is good, open a pull request **from `preview` into `master`** and merge it.
+   That publishes the release, for example `v1.5.0`, to everyone.
+
+Use a **merge commit** (not "squash") when merging `preview` into `master`, so the individual
+changes, and any `#minor` or `#major` in them, stay visible in the history and in the release notes.
+
+### What kind of version: patch, minor or major
+
+The version is decided by the messages of the commits and merges since the last release; see
+[Version numbers](#version-numbers). In short:
+
+| You want | Put this in a commit message or the pull request title |
+|---|---|
+| a patch release (bug fixes), `1.4.2 → 1.4.3` | nothing; that's the default (or `#patch`) |
+| a minor release (new features), `1.4.2 → 1.5.0` | `#minor`, or start the message with `feat` |
+| a major release (big or breaking changes), `1.4.2 → 2.0.0` | `#major` or `BREAKING CHANGE` |
+
+### Releasing a new major version
+
+1. Do the work on `preview` as usual. As soon as one commit or merge into `preview` contains
+   `#major`, the previews become `2.0.0-preview.1`, `2.0.0-preview.2`, …, so testers can see a major
+   version is coming.
+2. When it's ready, merge `preview` into `master` with a merge commit. The `#major` in the history
+   makes it `2.0.0`. To be explicit, also write it in the merge message:
+   `Release 2.0 #major`.
+3. Want an exact number instead, say `3.0.0`? Change `version` in `Cargo.toml` to `3.0.0` in that
+   pull request. The workflow never picks a version lower than `Cargo.toml` says.
+
+### A hotfix for the stable release
+
+Something is broken in `v1.5.0` and can't wait for the next preview round:
+
+1. Branch off `master`, fix it, and open a pull request **into `master`**. Merging releases `v1.5.1`.
+2. Then merge `master` back into `preview` (a pull request from `master` into `preview`), so the
+   fix is in the previews too and the two branches don't drift apart.
+
+### Keeping `preview` up to date
+
+After every release from `master`, merge `master` back into `preview`. Then `preview` always
+contains everything that's released, and the next preview starts from the new version (after
+`v1.5.0`, the next preview is `v1.5.1-preview.1`, or `v1.6.0-preview.1` after a `#minor`).
+
+### Undoing a release
+
+On the Releases page, delete the release **and its tag**. Installed copies that already updated
+keep that version until a newer one is published. Fix the problem and merge again: the workflow
+reuses the version number only if its tag is gone.
 
 ## What happens on each merge
 
@@ -100,6 +168,26 @@ To jump to a specific version, for example `1.0.0` for a big launch, change `ver
 `Cargo.toml` to `1.0.0` and merge. `Cargo.toml` acts as a minimum: the workflow never picks
 anything lower. Before there are any tags, the first release uses the `Cargo.toml` version as is.
 
+## Release files
+
+Every release has the version in its file names:
+
+| | Mac | Windows |
+|---|---|---|
+| COAT | `COAT_v1.5.0.zip` (contains `COAT.app`) | `COAT_v1.5.0.exe` |
+| COAT Preview | `COAT_v1.5.0-preview.3_PREVIEW.zip` (contains `COAT Preview.app`) | `COAT_v1.5.0-preview.3_PREVIEW.exe` |
+
+Plus `SHA256SUMS.txt`, the checksums that installed copies use to verify an update.
+
+**Old names, for old copies.** Releases before 0.5 used fixed names (`COAT-macOS.zip`, `COAT.exe`,
+`COAT-PREVIEW-macOS.zip`, `COAT-PREVIEW.exe`), and copies of COAT 0.4 and older look for those
+names when they update themselves. So each release also includes its files under the old names.
+Once nobody runs 0.4 or older any more, set `LEGACY_FILE_NAMES: "false"` in the release job of
+`.github/workflows/build.yml` to stop publishing them.
+
+**Homebrew.** Each release also updates the Homebrew tap (once it's [set up](#3-homebrew-optional)),
+so `brew install --cask archways404/tap/coat` (or `coat@preview`) always installs the newest one.
+
 To see which version the next merge would get, run `./packaging/next-version.sh` (stable) or
 `./packaging/next-version.sh --preview`. `./packaging/test-versions.sh` checks all these rules
 (the workflow runs it on every build).
@@ -130,15 +218,35 @@ Open **Settings → Actions → General → Workflow permissions**. If it's set 
 contents*, the workflow can still publish, because it asks for write access only in its release
 step. If your organisation forbids that, switch to **Read and write permissions**.
 
+### 3. Homebrew (optional)
+
+To offer `brew install --cask archways404/tap/coat`:
+
+1. Create a **public** repository called **`homebrew-tap`** under the same owner
+   (`archways404/homebrew-tap`), with just a README. Homebrew finds it by that name.
+2. Create a token that may push to it: GitHub **Settings → Developer settings → Personal access
+   tokens → Fine-grained tokens → Generate new token**. Repository access: only `homebrew-tap`.
+   Permissions: **Contents: Read and write**.
+3. In **this** repository, add it as the secret **`HOMEBREW_TAP_TOKEN`** (Settings → Secrets and
+   variables → Actions → New repository secret).
+
+From the next release on, the workflow writes `Casks/coat.rb` (and `Casks/coat@preview.rb` for
+previews) into the tap. Without the secret it skips this step and says so in the run.
+
+Casks are generated by `packaging/homebrew/write-cask.sh`. They mark COAT as updating itself
+(`auto_updates true`), so `brew upgrade` leaves it alone. Homebrew can't skip the
+[first-time question](user-guide.md#the-first-time-you-open-it) for an app that isn't signed with a
+company certificate.
+
 ## Day to day
 
-- **Ship a change**: merge it to `master`. That's all.
+- **Ship a change**: merge it to `preview` for a pre-release, then `preview` to `master` for a
+  release. See [How to ship a change](#how-to-ship-a-change).
 - **Watch it**: the **Actions** tab shows each run; the summary of the *version* step says which
   version it will publish.
 - **A run failed**: open it and look at the red step. Test failures show which test and why.
   Fix it, merge again, and a new release with the next version is made.
-- **Undo a release**: on the Releases page, delete the release and its tag. The next merge reuses
-  the version number only if that tag is gone.
+- **Undo a release**: see [Undoing a release](#undoing-a-release).
 
 ## Signing the apps (future)
 

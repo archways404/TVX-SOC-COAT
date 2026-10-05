@@ -114,6 +114,7 @@ The options of the terminal command:
 | `--save-raw FILE` | also save what was fetched, to re-run later without simlog |
 | `--input FILE` | analyse a `--save-raw` file instead of fetching |
 | `--no-color` | plain terminal output |
+| `--keep` | also mark the call for long-term storage in simlog (about 10 years) |
 
 **Work offline with a saved call.** Fetch once with `--save-raw ~/calls/mycall.coat.json`, then
 iterate on the analysis with `--input ~/calls/mycall.coat.json`: it's instant and needs no VPN. Keep
@@ -154,7 +155,7 @@ coat <link> ─────────► main.rs ──┤
 | `src/main.rs` | Reads the command line and decides what to do: open the app, run the web UI, or trace one call in the terminal. |
 | `src/app.rs` | Double-click behaviour: finds an already running COAT, or starts one in the background (no console window, no Dock icon) and opens the browser. |
 | `src/serve.rs` | The local web server: start page, the "trace this" API, progress, finished reports, Quit. Only answers on `127.0.0.1`. |
-| `src/source.rs` | Talks to simlog: the addresses, paging (including the parallel fetch and its safety checks), and following linked sessions. Also the `Bundle` file format for `--save-raw`. |
+| `src/source.rs` | Talks to simlog: the addresses, paging (including the parallel fetch and its safety checks), following linked sessions, and marking sessions for long-term storage (`longtermstore`). Also the `Bundle` file format for `--save-raw`. |
 | `src/logparse.rs` | Splits one raw log line into time, machine, program, level, code location and message. |
 | `src/trace.rs` | The analysis. Builds the route from the dialplan, picks the reason for each hop, and collects activity, variables, queue details, the outcome and grouped issues. The heart of COAT. |
 | `src/report.rs` | Turns the analysis into the report's sections (route, steps, issues, SIP ladder, log …) and the sidebar entries for them. |

@@ -82,6 +82,9 @@ struct TraceArgs {
     /// Plain terminal output
     #[arg(long)]
     no_color: bool,
+    /// Also mark the call for long-term storage in simlog (about 10 years instead of a few weeks)
+    #[arg(long)]
+    keep: bool,
 }
 
 fn main() -> ExitCode {
@@ -106,6 +109,9 @@ fn trace_command(args: &TraceArgs) -> Result<(), CoatError> {
     let started = Instant::now();
     let bundle = load(args)?;
     let fetched = started.elapsed();
+    if args.keep {
+        keep_long_term(&bundle)?;
+    }
     let trace = trace::build_trace(bundle);
     let analysed = started.elapsed() - fetched;
 
@@ -125,6 +131,17 @@ fn trace_command(args: &TraceArgs) -> Result<(), CoatError> {
     if let (Some(path), true) = (&report_path, args.open) {
         let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
         serve::open_browser(&format!("file://{}", absolute.display()));
+    }
+    Ok(())
+}
+
+fn keep_long_term(bundle: &Bundle) -> Result<(), CoatError> {
+    let sessions: Vec<String> = bundle.sessions.iter().map(|s| s.sessionid.clone()).collect();
+    for result in source::keep_long_term(&bundle.base_url, &sessions)? {
+        let days = result.ttl_seconds / 86_400;
+        let state = if result.kept { format!("kept long-term ({days} days)") } else { "NOT kept".to_string() };
+        eprintln!("  {}: {state}{}", result.sessionid,
+                  if result.warning.is_empty() { String::new() } else { format!(" ({})", result.warning) });
     }
     Ok(())
 }

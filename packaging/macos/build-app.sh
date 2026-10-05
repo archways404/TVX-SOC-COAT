@@ -1,6 +1,6 @@
 #!/bin/sh
-# Build dist/COAT.app and dist/COAT-macOS.zip, or with COAT_CHANNEL=preview,
-# dist/COAT Preview.app and dist/COAT-PREVIEW-macOS.zip (a separate app with its own name,
+# Build dist/COAT.app and dist/COAT_v<version>.zip, or with COAT_CHANNEL=preview,
+# dist/COAT Preview.app and dist/COAT_v<version>_PREVIEW.zip (a separate app with its own name,
 # bundle id and green icon, so it can be installed next to COAT).
 #
 # Universal (Apple Silicon + Intel) when both Rust targets are installed:
@@ -11,9 +11,9 @@ cd "$(dirname "$0")/../.."
 
 VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
 if [ "${COAT_CHANNEL:-stable}" = preview ]; then
-  NAME="COAT Preview" ID=se.telavox.coat.preview ICON=COAT-Preview ZIP=COAT-PREVIEW-macOS.zip
+  NAME="COAT Preview" ID=se.telavox.coat.preview ICON=COAT-Preview ZIP="COAT_v${VERSION}_PREVIEW.zip"
 else
-  NAME="COAT" ID=se.telavox.coat ICON=COAT ZIP=COAT-macOS.zip
+  NAME="COAT" ID=se.telavox.coat ICON=COAT ZIP="COAT_v${VERSION}.zip"
 fi
 APP="dist/$NAME.app"
 installed=$(rustup target list --installed 2>/dev/null || true)

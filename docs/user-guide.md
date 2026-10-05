@@ -30,18 +30,29 @@ the call, often tens of thousands of them. COAT reads those lines for you and sh
 
 You need to be connected to the Telavox **VPN** whenever you use COAT.
 
+Open the **[newest release](https://github.com/archways404/TVX-SOC-COAT/releases/latest)**. Under **Assets** at the bottom, the files are
+named after their version, for example `COAT_v1.2.3.zip`.
+
 **Mac**
 
-1. Download [COAT-macOS.zip](https://github.com/archways404/TVX-SOC-COAT/releases/latest/download/COAT-macOS.zip).
+1. Download `COAT_v….zip`.
 2. Double-click the zip file. A **COAT** app appears next to it.
 3. Drag **COAT** into your **Applications** folder.
 
+Or, if you use [Homebrew](https://brew.sh): `brew install --cask archways404/tap/coat`. (Homebrew
+still asks the [first-time question](#the-first-time-you-open-it) below.)
+
 **Windows**
 
-1. Download [COAT.exe](https://github.com/archways404/TVX-SOC-COAT/releases/latest/download/COAT.exe).
+1. Download `COAT_v….exe`.
 2. Move it somewhere you'll find it again, for example your desktop.
 
-There's nothing else to install.
+When COAT updates itself, a file still called `COAT_v1.2.3.exe` is renamed to the new version, so its
+name always tells you which version you have. If you renamed it yourself (say to `COAT.exe`), your
+name is kept.
+
+There's nothing else to install. (You may also see `COAT-macOS.zip` and `COAT.exe` in a release: the
+same files under their old names, so older copies of COAT can still update themselves.)
 
 ## The first time you open it
 
@@ -165,6 +176,17 @@ technical troubleshooting:
 - **SIP ladder** shows the signalling messages between systems. Click one to read it in full.
 - **Log** lets you search all the log lines, filtered by step.
 
+## Keeping a call long-term
+
+Simlog normally deletes a call after a few weeks; each report says until when, next to the session
+ids ("stored in simlog until …"). If you'll need the call later, for example for an open case,
+click **Keep long-term** at the top of the report. COAT asks you to confirm, then asks simlog to keep
+**every session of the call** (the agent's part too) for about **10 years**. The button turns into
+**kept until …**. This is the same as simlog's own "Mark for long term storage" button, but for the
+whole call at once.
+
+Only do this when you need to: a kept call keeps its personal data for all those years too.
+
 ## Personal data: scrubbed and unscrubbed
 
 By default COAT shows the call **unscrubbed**: real phone numbers, names, and anything the caller
@@ -217,8 +239,8 @@ everyone, so a few people can try it first. You'll recognise it by its **green s
 
 - It's a **separate app**: install it next to COAT, and use either. Both can run at the same time.
 - Download it from the [Releases page](https://github.com/archways404/TVX-SOC-COAT/releases): pick
-  the newest release marked **Pre-release** and download `COAT-PREVIEW-macOS.zip` (Mac) or
-  `COAT-PREVIEW.exe` (Windows).
+  the newest release marked **Pre-release** and download `COAT_v…_PREVIEW.zip` (Mac) or
+  `COAT_v…_PREVIEW.exe` (Windows). With Homebrew: `brew install --cask archways404/tap/coat@preview`.
 - It updates itself to newer previews, just like COAT updates itself to newer releases.
 - Previews are less tested. If something looks wrong, check it in COAT, and tell the developer.
 

@@ -24,6 +24,16 @@ pub struct Options {
 
 pub struct Served {
     pub refresh_url: String,
+    /// The app's job id for this report, for the "Keep long-term" button.
+    pub job: usize,
+}
+
+/// How long simlog keeps this call: (every session long-term?, the soonest end).
+pub fn retention(trace: &CallTrace) -> (bool, Option<chrono::NaiveDate>) {
+    let kept = trace.bundle.sessions.iter().all(|s| s.is_long_term());
+    let soonest = trace.bundle.sessions.iter().filter_map(|s| s.ttl_seconds()).min();
+    let until = soonest.map(|ttl| (chrono::Local::now() + chrono::TimeDelta::seconds(ttl as i64)).date_naive());
+    (kept, until)
 }
 
 fn hms(time: NaiveDateTime) -> String {
@@ -110,7 +120,16 @@ fn header_badges(trace: &CallTrace, served: Option<&Served>) -> String {
     };
     let refresh = served.map_or(String::new(), |s| format!(
         "<a class='icon-btn' href='{}' title='Fetch this session again from simlog'>{}</a>", esc(&s.refresh_url), icon("refresh")));
-    format!("<code class='hide-sm'>{}</code><span class='badge hide-sm'>{}</span>{scrub}{refresh}",
+    let (kept, until) = retention(trace);
+    let until_text = until.map_or("?".to_string(), |d| d.format("%-d %b %Y").to_string());
+    let keep = match served {
+        _ if kept => format!("<span class='badge ok' id='keep' title='simlog keeps this call until {until_text}'>{} kept long-term</span>", icon("archive")),
+        Some(s) => format!(
+            "<button class='badge keep-btn' id='keep' data-job='{}' title='simlog deletes this call on {until_text}. Keep it for about 10 years instead.'>\
+             {} Keep long-term</button>", s.job, icon("archive")),
+        None => String::new(),
+    };
+    format!("<code class='hide-sm'>{}</code><span class='badge hide-sm'>{}</span>{scrub}{keep}{refresh}",
             esc(&trace.root), esc(&trace.bundle.env))
 }
 
@@ -140,10 +159,16 @@ fn hero(trace: &CallTrace) -> String {
         .collect();
     let oneliner = trace.bundle.session(&trace.root).map(|s| s.oneliner()).unwrap_or_default();
     let simlog_says = if oneliner.is_empty() { String::new() } else { format!(" · simlog says: “{}”", esc(&oneliner)) };
+    let (kept, until) = retention(trace);
+    let stored = match (kept, until) {
+        (true, Some(date)) => format!(" · kept long-term in simlog, until {}", date.format("%-d %b %Y")),
+        (false, Some(date)) => format!(" · <span id='stored-until'>stored in simlog until {}</span>", date.format("%-d %b %Y")),
+        _ => String::new(),
+    };
     format!(
         "<section class='hero' id='overview'><h1><span>{}</span><i>calls</i><span>{}</span></h1>\
          <p class='verdict {state}'>{}</p><div class='pills'>{}</div>\
-         <p class='muted small'>Sessions: {sessions}{simlog_says}</p></section>",
+         <p class='muted small'>Sessions: {sessions}{simlog_says}{stored}</p></section>",
         esc(&trace.caller), esc(&trace.dialed), esc(&outcome.summary), pills.join(""))
 }
 
