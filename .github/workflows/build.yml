@@ -1,17 +1,18 @@
-# Builds, tests and releases COAT for macOS and Windows.
+# Builds, tests and releases COAT for macOS and Windows, on two channels:
 #
-#   push or merge to master → picks the next version (packaging/next-version.sh), builds
-#                             both apps, and publishes them as GitHub Release vX.Y.Z
-#   pull request            → builds and tests both apps, no release
+#   push or merge to master   → stable release vX.Y.Z (marked "Latest"):   COAT-macOS.zip, COAT.exe
+#   push or merge to preview  → pre-release vX.Y.Z-preview.N:                COAT-PREVIEW-macOS.zip, COAT-PREVIEW.exe
+#   pull request              → builds and tests (as preview when it targets preview), no release
 #
-# Version bumps come from commit messages since the last release:
-#   "#major" / "BREAKING CHANGE" → major · "feat…" / "#minor" → minor · anything else → patch
-# Nothing is committed back to master; the version lives in the release tag.
+# The next version comes from the commit messages since the last stable release, in any case:
+#   "#major" / "BREAKING CHANGE" → major · "#minor" / starts with "feat" → minor · "#patch" / anything else → patch
+# Tags are created by the release step; nothing is committed back to the branches.
+# See docs/releasing.md.
 name: release
 
 on:
   push:
-    branches: [master]
+    branches: [master, preview]
     # Docs-only changes don't need a new release.
     paths-ignore: ["**.md", ".gitignore", ".gitattributes"]
   pull_request:
@@ -20,20 +21,22 @@ on:
 permissions:
   contents: read
 
-# The internal simlog addresses are not in the source code. Builds get them from repository
-# secrets (Settings → Secrets and variables → Actions) and compile them in; see docs/releasing.md.
+# Releases of a branch run one at a time, so two quick merges never get the same version.
+# Pull requests build in parallel, and a newer push to the same PR cancels the older build.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref_name) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
+  # The internal simlog addresses are not in the source code. Builds get them from repository
+  # secrets (Settings → Secrets and variables → Actions) and compile them in.
   COAT_SIMLOG_NORDIC: ${{ secrets.COAT_SIMLOG_NORDIC }}
   COAT_SIMLOG_UAE: ${{ secrets.COAT_SIMLOG_UAE }}
   # Builds from this workflow are official: they update themselves from this repository's releases.
   COAT_RELEASE_BUILD: "1"
   COAT_REPO: ${{ github.repository }}
-
-# Releases run one at a time, so two quick merges never get the same version number.
-# Pull requests build in parallel, and a newer push to the same PR cancels the older build.
-concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || 'release' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # The preview branch (and pull requests into it) build COAT Preview.
+  COAT_CHANNEL: ${{ (github.ref_name == 'preview' || github.base_ref == 'preview') && 'preview' || 'stable' }}
 
 jobs:
   version:
@@ -45,22 +48,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # all history and tags, to find the last release
+      - name: Test the version rules
+        run: ./packaging/test-versions.sh
       - id: next
         env:
-          ON_MASTER: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+          RELEASE_BRANCH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/preview') }}
         run: |
-          version=$(./packaging/next-version.sh)
-          release=$ON_MASTER
+          if [ "$COAT_CHANNEL" = preview ]; then
+            version=$(./packaging/next-version.sh --preview)
+            released_here=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$' || true)
+          else
+            version=$(./packaging/next-version.sh)
+            released_here=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          fi
+          release=$RELEASE_BRANCH
+          # A re-run of a commit that's already released on this channel must not publish it twice.
+          if [ -n "$released_here" ]; then release=false; fi
           # Never publish a COAT that can't reach simlog.
           if [ "$release" = true ] && [ -z "$COAT_SIMLOG_NORDIC" ]; then
             echo "::error::Repository secret COAT_SIMLOG_NORDIC is not set, so this release could not reach simlog. See docs/releasing.md."
             exit 1
           fi
-          # A re-run of an already released commit must not publish it a second time.
-          if [ -n "$(git tag --points-at HEAD 'v*')" ]; then release=false; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "release=$release" >> "$GITHUB_OUTPUT"
-          if [ "$release" = true ]; then what="will be released as v$version"; else what="build only, no release"; fi
+          if [ "$release" = true ]; then what="will be released as v$version ($COAT_CHANNEL)"; else what="build only, no release"; fi
           echo "### COAT $version: $what" >> "$GITHUB_STEP_SUMMARY"
 
   macos:
@@ -81,19 +92,19 @@ jobs:
       - run: cargo test --release --locked
       - name: Test that an old version updates itself to a new one
         run: ./packaging/test-update.sh
-      - name: Build COAT.app (Apple Silicon + Intel)
+      - name: Build the app (Apple Silicon + Intel)
         run: ./packaging/macos/build-app.sh
       - name: Smoke test the app the way a double-click runs it
         run: |
-          app=dist/COAT.app/Contents/MacOS/coat
-          "$app" --version
-          COAT_NO_BROWSER=1 "$app"
-          curl -fsS http://127.0.0.1:7171/api/ping
-          curl -fsS -X POST http://127.0.0.1:7171/api/quit
+          if [ "$COAT_CHANNEL" = preview ]; then app="dist/COAT Preview.app"; port=7191; else app=dist/COAT.app; port=7171; fi
+          "$app/Contents/MacOS/coat" --version
+          COAT_NO_BROWSER=1 "$app/Contents/MacOS/coat"
+          curl -fsS "http://127.0.0.1:$port/api/ping"
+          curl -fsS -X POST "http://127.0.0.1:$port/api/quit"
       - uses: actions/upload-artifact@v4
         with:
           name: COAT-macOS
-          path: dist/COAT-macOS.zip
+          path: dist/*.zip
           retention-days: 14
 
   windows:
@@ -117,17 +128,21 @@ jobs:
       - name: Test that an old version updates itself to a new one
         run: ./packaging/test-update.sh
       - run: cargo build --release --locked
-      - run: mkdir -p dist && cp target/release/coat.exe dist/COAT.exe
+      - name: Name the program for its channel
+        run: |
+          if [ "$COAT_CHANNEL" = preview ]; then name=COAT-PREVIEW.exe; else name=COAT.exe; fi
+          mkdir -p dist && cp target/release/coat.exe "dist/$name"
       - name: Smoke test the app the way a double-click runs it
         run: |
-          ./dist/COAT.exe --version
-          COAT_NO_BROWSER=1 ./dist/COAT.exe
-          curl -fsS http://127.0.0.1:7171/api/ping
-          curl -fsS -X POST http://127.0.0.1:7171/api/quit
+          if [ "$COAT_CHANNEL" = preview ]; then exe=dist/COAT-PREVIEW.exe; port=7191; else exe=dist/COAT.exe; port=7171; fi
+          "./$exe" --version
+          COAT_NO_BROWSER=1 "./$exe"
+          curl -fsS "http://127.0.0.1:$port/api/ping"
+          curl -fsS -X POST "http://127.0.0.1:$port/api/quit"
       - uses: actions/upload-artifact@v4
         with:
           name: COAT-Windows
-          path: dist/COAT.exe
+          path: dist/*.exe
           retention-days: 14
 
   release:
@@ -146,15 +161,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          # Checksums let the apps verify an update before installing it.
-          (cd dist && sha256sum COAT-macOS.zip COAT.exe > SHA256SUMS.txt)
-          notes=$(printf '%s\n' \
-            "**Mac:** download **COAT-macOS.zip**, double-click it, and drag COAT into Applications." \
-            "**Windows:** download **COAT.exe** and double-click it." \
-            "" \
-            "The first time, your computer asks whether to trust COAT. See the README for the one-time steps." \
-            "" \
-            "Already using COAT? It updates itself: look for \"Update ready\" in the sidebar.")
-          gh release create "v$VERSION" dist/COAT-macOS.zip dist/COAT.exe dist/SHA256SUMS.txt \
+          cd dist
+          # Checksums let installed apps verify an update before installing it.
+          sha256sum -- *.zip *.exe > SHA256SUMS.txt
+          if [ "$COAT_CHANNEL" = preview ]; then
+            title="COAT Preview $VERSION"; kind=(--prerelease --latest=false)
+            notes=$(printf '%s\n' \
+              "**This is a preview build** from the \`preview\` branch: newer, and less tested than the stable release." \
+              "It's a separate app (green, called COAT Preview) that you can install next to COAT." \
+              "" \
+              "**Mac:** download **COAT-PREVIEW-macOS.zip**, double-click it, and drag COAT Preview into Applications." \
+              "**Windows:** download **COAT-PREVIEW.exe** and double-click it." \
+              "" \
+              "Already using COAT Preview? It updates itself to new previews.")
+          else
+            title="COAT $VERSION"; kind=(--latest)
+            notes=$(printf '%s\n' \
+              "**Mac:** download **COAT-macOS.zip**, double-click it, and drag COAT into Applications." \
+              "**Windows:** download **COAT.exe** and double-click it." \
+              "" \
+              "The first time, your computer asks whether to trust COAT. See the README for the one-time steps." \
+              "" \
+              "Already using COAT? It updates itself: look for \"Update ready\" in the sidebar.")
+          fi
+          gh release create "v$VERSION" *.zip *.exe SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "COAT $VERSION" --notes "$notes" --generate-notes --latest
+            --title "$title" --notes "$notes" --generate-notes "${kind[@]}"

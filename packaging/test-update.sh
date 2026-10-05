@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end test of automatic updates, on macOS or Windows (Git Bash).
 #
-# Builds an "old" COAT (0.0.1) and a "new" one (0.0.2), publishes the new one as a fake
-# GitHub release on this computer, starts the old one, and checks that it finds the
-# update, downloads and verifies it, swaps itself, restarts as 0.0.2, and cleans up.
+# Builds an "old" COAT and a "new" one, publishes the new one as a fake GitHub release on
+# this computer, starts the old one, and checks that it finds the update, downloads and
+# verifies it, swaps itself, restarts as the new version, and cleans up.
+# With COAT_CHANNEL=preview it does the same for COAT Preview (0.0.1-preview.1 → .2).
 # Uses its own port and settings folder, so a COAT you have running isn't touched.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,7 +15,13 @@ case "$(uname -s)" in
   *) echo "update test: only runs on macOS and Windows"; exit 0 ;;
 esac
 
-old=0.0.1 new=0.0.2 port=7350 release_port=8765
+channel=${COAT_CHANNEL:-stable}
+if [ "$channel" = preview ]; then
+  old=0.0.1-preview.1 new=0.0.1-preview.2 name="COAT Preview" exe=COAT-PREVIEW.exe zip=COAT-PREVIEW-macOS.zip
+else
+  old=0.0.1 new=0.0.2 name=COAT exe=COAT.exe zip=COAT-macOS.zip
+fi
+port=7350 release_port=8765
 work=$(mktemp -d)
 api="http://127.0.0.1:$port"
 cp Cargo.toml "$work/Cargo.toml.orig"; cp Cargo.lock "$work/Cargo.lock.orig"
@@ -38,21 +45,22 @@ build() {   # build <version>
 echo "== building the old version ($old)"
 build "$old"
 if [ "$os" = mac ]; then
-  cp -R dist/COAT.app "$work/apps/COAT.app"; installed="$work/apps/COAT.app/Contents/MacOS/coat"; asset=COAT-macOS.zip
+  cp -R "dist/$name.app" "$work/apps/$name.app"; installed="$work/apps/$name.app/Contents/MacOS/coat"; asset=$zip
 else
-  cp target/release/coat.exe "$work/apps/COAT.exe"; installed="$work/apps/COAT.exe"; asset=COAT.exe
+  cp target/release/coat.exe "$work/apps/$exe"; installed="$work/apps/$exe"; asset=$exe
 fi
 
 echo "== building the new version ($new) and publishing it as a fake release"
 build "$new"
-if [ "$os" = mac ]; then cp dist/COAT-macOS.zip "$work/release/"; else cp target/release/coat.exe "$work/release/COAT.exe"; fi
+if [ "$os" = mac ]; then cp "dist/$zip" "$work/release/"; else cp target/release/coat.exe "$work/release/$exe"; fi
 ( cd "$work/release"
   if command -v sha256sum >/dev/null; then sha256sum "$asset"; else shasum -a 256 "$asset"; fi > SHA256SUMS.txt
-  cat > release.json <<JSON
-{"tag_name": "v$new", "html_url": "http://127.0.0.1:$release_port/",
- "assets": [{"name": "$asset", "browser_download_url": "http://127.0.0.1:$release_port/$asset"},
-            {"name": "SHA256SUMS.txt", "browser_download_url": "http://127.0.0.1:$release_port/SHA256SUMS.txt"}]}
-JSON
+  release="{\"tag_name\": \"v$new\", \"prerelease\": $([ "$channel" = preview ] && echo true || echo false),
+    \"html_url\": \"http://127.0.0.1:$release_port/\",
+    \"assets\": [{\"name\": \"$asset\", \"browser_download_url\": \"http://127.0.0.1:$release_port/$asset\"},
+                {\"name\": \"SHA256SUMS.txt\", \"browser_download_url\": \"http://127.0.0.1:$release_port/SHA256SUMS.txt\"}]}"
+  # Stable asks GitHub for "the latest release" (one object); preview reads the list of releases.
+  if [ "$channel" = preview ]; then echo "[$release]" > release.json; else echo "$release" > release.json; fi
 )
 python=$(command -v python3 || command -v python)
 "$python" -m http.server "$release_port" --bind 127.0.0.1 --directory "$work/release" >/dev/null 2>&1 &
@@ -86,7 +94,7 @@ wait_for 60 "the new version to answer" version_is "$new"
 echo "== checking what's on disk"
 on_disk=$("$installed" --version)
 [ "$on_disk" = "coat $new" ] || { echo "FAILED: installed program reports '$on_disk'"; exit 1; }
-leftovers_gone() { ! ls -A "$work/apps" | grep -qiE '\.COAT-old|\.old\.exe|\.new\.exe|\.COAT-update'; }
+leftovers_gone() { ! ls -A "$work/apps" | grep -qiE -- '-old\.app|-update$|\.old\.exe|\.new\.exe'; }
 wait_for 20 "the old copy to be cleaned up" leftovers_gone
 
-echo "PASS: $old updated itself to $new"
+echo "PASS: $name $old updated itself to $new"

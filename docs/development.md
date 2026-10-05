@@ -128,6 +128,7 @@ Other variables that help while developing:
 | `COAT_PORT=7300` | Use another port than 7171, so you can run a test copy next to your normal COAT. |
 | `COAT_SETTINGS_DIR=/tmp/coat` | Keep settings somewhere else than your real user settings. |
 | `COAT_UPDATE_URL=…` | Ask this address instead of GitHub for the latest release (used by the update test). Must be HTTPS, or HTTP to `127.0.0.1`. |
+| `COAT_CHANNEL=preview` | **At build time**: build COAT Preview (green sidebar, PREVIEW label, its own port, settings and updates). Run `COAT_CHANNEL=preview cargo run --release` to see it. |
 | `NO_COLOR=1` | No colours in the terminal summary. |
 
 ## A tour of the code
@@ -273,18 +274,25 @@ The asset files are read when COAT is compiled, so run `cargo run --release -- -
 COAT as version 0.0.1 and as 0.0.2, publishes 0.0.2 as a fake GitHub release on your computer,
 starts 0.0.1, and checks that it downloads, verifies and installs 0.0.2, restarts as 0.0.2, and
 cleans up after itself. It uses its own port and settings folder and puts `Cargo.toml` back when
-it's done. The release workflow runs it on every build.
+it's done. `COAT_CHANNEL=preview ./packaging/test-update.sh` does the same for COAT Preview
+(0.0.1-preview.1 → 0.0.1-preview.2). The release workflow runs it on every build, for the
+branch's channel.
+
+`./packaging/test-versions.sh` tests the version rules (bumps from `#major` / `#minor` /
+`#patch`, preview numbering) in a throwaway git repository.
 
 ## Building the apps
 
-- **Mac**: `./packaging/macos/build-app.sh` builds `dist/COAT.app` and `dist/COAT-macOS.zip`. With
+- **Mac**: `./packaging/macos/build-app.sh` builds `dist/COAT.app` and `dist/COAT-macOS.zip`
+  (`COAT_CHANNEL=preview` builds `dist/COAT Preview.app` and `dist/COAT-PREVIEW-macOS.zip`). With
   both Rust targets installed (`rustup target add aarch64-apple-darwin x86_64-apple-darwin`) the
   app runs on Apple Silicon and Intel Macs.
 - **Windows**: `cargo build --release` on a Windows machine gives `target\release\coat.exe`, icon
   included. In practice the release workflow builds it.
 - **The icon**: the sources are `packaging/icon.svg` and `packaging/icon-small.svg` (a bolder
-  version for 16–32 pixels). After editing, export each to its `-1024.png` file and run
-  `./packaging/make-icons.sh` (Mac only) to regenerate the Mac, Windows and web icons.
+  version for 16–32 pixels), and their green PREVIEW versions `icon-preview.svg` and
+  `icon-small-preview.svg`. After editing, export each to its `-1024.png` file and run
+  `./packaging/make-icons.sh` (Mac only) to regenerate the Mac, Windows and web icons of both apps.
 
 ## Troubleshooting your setup
 

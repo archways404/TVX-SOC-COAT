@@ -12,6 +12,7 @@ This guide is for everyone who uses COAT. You don't need any technical backgroun
 - [Personal data: scrubbed and unscrubbed](#personal-data-scrubbed-and-unscrubbed)
 - [Updates](#updates)
 - [Stopping COAT](#stopping-coat)
+- [COAT Preview](#coat-preview)
 - [Troubleshooting](#troubleshooting)
 
 ## What COAT does
@@ -207,6 +208,19 @@ it's installed, so a damaged or tampered download is never used.
 
 Click **Quit COAT** at the bottom of the sidebar. COAT also stops by itself after 12 hours without
 use. Double-click COAT to start it again.
+
+## COAT Preview
+
+Besides COAT itself there's **COAT Preview**: the newest version, released before it reaches
+everyone, so a few people can try it first. You'll recognise it by its **green sidebar**, the
+**PREVIEW** label, and its green icon.
+
+- It's a **separate app**: install it next to COAT, and use either. Both can run at the same time.
+- Download it from the [Releases page](https://github.com/archways404/TVX-SOC-COAT/releases): pick
+  the newest release marked **Pre-release** and download `COAT-PREVIEW-macOS.zip` (Mac) or
+  `COAT-PREVIEW.exe` (Windows).
+- It updates itself to newer previews, just like COAT updates itself to newer releases.
+- Previews are less tested. If something looks wrong, check it in COAT, and tell the developer.
 
 ## Troubleshooting
 

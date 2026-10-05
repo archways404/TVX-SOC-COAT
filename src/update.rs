@@ -38,6 +38,33 @@ pub const REPO: &str = match option_env!("COAT_REPO") {
 /// Only builds made by the release workflow replace themselves.
 pub const RELEASE_BUILD: bool = option_env!("COAT_RELEASE_BUILD").is_some();
 
+/// The release channel this build belongs to: `stable` (from `master`) or `preview` (from the
+/// `preview` branch). Preview builds are a separate app, with their own name, port, settings,
+/// releases and updates, so both can be installed side by side.
+pub const PREVIEW: bool = match option_env!("COAT_CHANNEL") {
+    Some(channel) => same_text(channel, "preview"),
+    None => false,
+};
+pub const CHANNEL: &str = if PREVIEW { "preview" } else { "stable" };
+/// `a == b` for text, usable in a `const` (where `==` on `str` isn't allowed yet).
+const fn same_text(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// "COAT" or "COAT Preview": the app's name, and the name of its settings folder.
+pub const APP_NAME: &str = if PREVIEW { "COAT Preview" } else { "COAT" };
+
 const FIRST_CHECK_AFTER: Duration = Duration::from_secs(8);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// A downloaded update installs by itself once COAT has had no requests for this long.
@@ -250,9 +277,16 @@ fn allowed_url(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://127.0.0.1:") || url.starts_with("http://localhost:")
 }
 
+/// The newest release of this build's channel. Stable asks GitHub for the "latest" release
+/// (which never includes pre-releases); preview looks through recent releases for the newest
+/// `-preview.N` pre-release.
 fn latest_release() -> Result<Release, String> {
-    let url = std::env::var(UPDATE_URL_ENV)
-        .unwrap_or_else(|_| format!("https://api.github.com/repos/{REPO}/releases/latest"));
+    let default = if PREVIEW {
+        format!("https://api.github.com/repos/{REPO}/releases?per_page=40")
+    } else {
+        format!("https://api.github.com/repos/{REPO}/releases/latest")
+    };
+    let url = std::env::var(UPDATE_URL_ENV).unwrap_or(default);
     if !allowed_url(&url) {
         return Err(format!("refusing to check for updates over an insecure address: {url}"));
     }
@@ -267,13 +301,30 @@ fn latest_release() -> Result<Release, String> {
             other => format!("couldn't reach GitHub ({other})"),
         })?;
     let json: Value = serde_json::from_str(&body).map_err(|e| format!("unexpected answer from GitHub: {e}"))?;
-    parse_release(&json, asset_name())
+    match json.as_array() {
+        Some(releases) => newest_for_channel(releases, PREVIEW, asset_name()),
+        None => parse_release(&json, asset_name()),
+    }
+}
+
+/// From a list of releases, the newest one of the given channel.
+fn newest_for_channel(releases: &[Value], preview: bool, asset: &str) -> Result<Release, String> {
+    releases.iter()
+        .filter(|r| !r["draft"].as_bool().unwrap_or(false))
+        .filter(|r| {
+            let tag = r["tag_name"].as_str().unwrap_or("");
+            let is_preview = tag.contains("-preview.");
+            is_preview == preview && r["prerelease"].as_bool().unwrap_or(false) == preview
+        })
+        .filter_map(|r| parse_release(r, asset).ok())
+        .max_by(|a, b| Version::parse(&a.version).cmp(&Version::parse(&b.version)))
+        .ok_or_else(|| format!("no {CHANNEL} releases published yet"))
 }
 
 fn parse_release(json: &Value, asset: &str) -> Result<Release, String> {
     let tag = json["tag_name"].as_str().ok_or("release without a tag")?;
     let version = tag.trim_start_matches('v').to_string();
-    parse_version(&version).ok_or_else(|| format!("release tag {tag} isn't a version"))?;
+    Version::parse(&version).ok_or_else(|| format!("release tag {tag} isn't a version"))?;
     let find = |name: &str| {
         json["assets"].as_array().into_iter().flatten()
             .find(|a| a["name"] == name)
@@ -293,8 +344,15 @@ fn parse_release(json: &Value, asset: &str) -> Result<Release, String> {
     })
 }
 
+/// The release file for this computer and channel.
 fn asset_name() -> &'static str {
-    if cfg!(target_os = "macos") { "COAT-macOS.zip" } else if cfg!(windows) { "COAT.exe" } else { "unsupported" }
+    match (cfg!(target_os = "macos"), cfg!(windows), PREVIEW) {
+        (true, _, false) => "COAT-macOS.zip",
+        (true, _, true) => "COAT-PREVIEW-macOS.zip",
+        (_, true, false) => "COAT.exe",
+        (_, true, true) => "COAT-PREVIEW.exe",
+        _ => "unsupported",
+    }
 }
 
 fn download(url: &str) -> Result<Vec<u8>, String> {
@@ -319,14 +377,40 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 // ---- versions ---------------------------------------------------------------------------------
 
-pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = text.trim().trim_start_matches('v').split('.').map(|p| p.parse::<u64>().ok());
-    let version = (parts.next()??, parts.next()??, parts.next()??);
-    parts.next().is_none().then_some(version)
+/// `1.4.2` or `1.4.2-preview.3`. A preview comes before the release it previews
+/// (`1.4.2-preview.3` < `1.4.2`), and previews of the same version count up.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version {
+    core: (u64, u64, u64),
+    /// `None` sorts after `Some`, so a release beats its previews.
+    release: Option<()>,
+    preview: u64,
+}
+
+impl Version {
+    pub fn parse(text: &str) -> Option<Version> {
+        let text = text.trim().trim_start_matches('v');
+        let (core, pre) = match text.split_once('-') {
+            Some((core, pre)) => (core, Some(pre)),
+            None => (text, None),
+        };
+        let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
+        let core = (parts.next()??, parts.next()??, parts.next()??);
+        if parts.next().is_some() {
+            return None;
+        }
+        match pre {
+            None => Some(Version { core, release: Some(()), preview: 0 }),
+            Some(pre) => {
+                let n = pre.strip_prefix("preview.")?.parse().ok()?;
+                Some(Version { core, release: None, preview: n })
+            }
+        }
+    }
 }
 
 pub fn is_newer(candidate: &str, current: &str) -> bool {
-    match (parse_version(candidate), parse_version(current)) {
+    match (Version::parse(candidate), Version::parse(current)) {
         (Some(candidate), Some(current)) => candidate > current,
         _ => false,
     }
@@ -378,12 +462,17 @@ fn writable(dir: &Path) -> bool {
     ok
 }
 
+/// Hidden folders next to the app, named after it, so COAT and COAT Preview never collide.
 fn mac_staging_dir(bundle: &Path) -> PathBuf {
-    bundle.with_file_name(".COAT-update")
+    bundle.with_file_name(format!(".{}-update", bundle_stem(bundle)))
 }
 
 fn mac_old_bundle(bundle: &Path) -> PathBuf {
-    bundle.with_file_name(".COAT-old.app")
+    bundle.with_file_name(format!(".{}-old.app", bundle_stem(bundle)))
+}
+
+fn bundle_stem(bundle: &Path) -> String {
+    bundle.file_stem().map(|s| s.to_string_lossy().replace(' ', "-")).unwrap_or_else(|| "COAT".into())
 }
 
 fn windows_sibling(exe: &Path, suffix: &str) -> PathBuf {
@@ -414,7 +503,9 @@ fn stage(release: &Release, target: &Target) -> Result<PathBuf, String> {
                 return Err("can't unpack the update".into());
             }
             let _ = std::fs::remove_file(&zip);
-            dir.join("COAT.app")
+            std::fs::read_dir(&dir).ok().into_iter().flatten().flatten().map(|e| e.path())
+                .find(|p| p.extension().is_some_and(|e| e == "app"))
+                .ok_or("the update doesn't contain an app")?
         }
         Target::WindowsExe { exe } => {
             let new = windows_sibling(exe, "new");
@@ -503,7 +594,7 @@ fn settings_path() -> Option<PathBuf> {
         std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
     };
-    base.map(|b| b.join("COAT").join("settings.json"))
+    base.map(|b| b.join(APP_NAME).join("settings.json"))
 }
 
 fn load_settings() -> Settings {
@@ -532,8 +623,34 @@ mod tests {
         assert!(!is_newer("0.2.0", "0.2.0"));
         assert!(!is_newer("0.1.9", "0.2.0"));
         assert!(!is_newer("nonsense", "0.2.0"));
-        assert_eq!(parse_version("1.2"), None);
-        assert_eq!(parse_version("1.2.3.4"), None);
+        assert_eq!(Version::parse("1.2"), None);
+        assert_eq!(Version::parse("1.2.3.4"), None);
+        assert_eq!(Version::parse("1.2.3-beta.1"), None);
+    }
+
+    #[test]
+    fn previews_sort_before_their_release_and_count_up() {
+        assert!(is_newer("0.4.0-preview.2", "0.4.0-preview.1"));
+        assert!(is_newer("0.4.0-preview.10", "0.4.0-preview.9"));
+        assert!(is_newer("0.4.0", "0.4.0-preview.7"));
+        assert!(is_newer("0.4.1-preview.1", "0.4.0"));
+        assert!(!is_newer("0.3.9", "0.4.0-preview.1"));
+    }
+
+    #[test]
+    fn each_channel_picks_its_own_newest_release() {
+        let release = |tag: &str, pre: bool, asset: &str| json!({"tag_name": tag, "prerelease": pre, "html_url": "",
+            "assets": [{"name": asset, "browser_download_url": format!("https://example.test/{tag}/{asset}")},
+                       {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/SHA256SUMS.txt"}]});
+        let releases = vec![
+            release("v0.4.0-preview.2", true, "COAT-PREVIEW.exe"),
+            release("v0.4.0-preview.10", true, "COAT-PREVIEW.exe"),
+            release("v0.3.0", false, "COAT.exe"),
+            release("v0.3.1", false, "COAT.exe"),
+        ];
+        assert_eq!(newest_for_channel(&releases, true, "COAT-PREVIEW.exe").unwrap().version, "0.4.0-preview.10");
+        assert_eq!(newest_for_channel(&releases, false, "COAT.exe").unwrap().version, "0.3.1");
+        assert!(newest_for_channel(&releases[2..], true, "COAT-PREVIEW.exe").is_err());
     }
 
     #[test]

@@ -27,8 +27,9 @@ COAT runs on **Mac** and **Windows**. You need to be connected to the Telavox **
 | Mac | [COAT-macOS.zip](https://github.com/archways404/TVX-SOC-COAT/releases/latest/download/COAT-macOS.zip) | Double-click to unzip, and drag **COAT** into Applications. |
 | Windows | [COAT.exe](https://github.com/archways404/TVX-SOC-COAT/releases/latest/download/COAT.exe) | Put it somewhere handy, for example the desktop. |
 
-These links always give you the newest version. The first time you open COAT your computer asks
-whether to trust it. The [user guide](docs/user-guide.md#the-first-time-you-open-it) shows the
+These links always give you the newest version. Want to try what's coming next? There's also
+[COAT Preview](docs/user-guide.md#coat-preview), a green preview app that installs next to COAT.
+The first time you open COAT your computer asks whether to trust it. The [user guide](docs/user-guide.md#the-first-time-you-open-it) shows the
 one-time steps.
 
 ## Use it
@@ -48,7 +49,7 @@ simlog page in COAT: see the [user guide](docs/user-guide.md#one-click-from-siml
 | [How it works](docs/how-it-works.md) | the curious, support, developers | How COAT turns log lines into a route, in plain language, with a glossary |
 | [Privacy and security](docs/privacy-and-security.md) | everyone | What data COAT handles, where it goes, and how it's protected |
 | [Development](docs/development.md) | developers, **no Rust experience needed** | Setting up, a tour of the code, running the tests, common changes |
-| [Releasing](docs/releasing.md) | maintainers | How new versions are built and published automatically |
+| [Releasing](docs/releasing.md) | maintainers | The stable and preview channels, version numbers, and how releases are published automatically |
 
 ## For developers in one minute
 

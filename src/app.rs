@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use crate::serve::{self, ServeOptions};
 
-pub const DEFAULT_PORT: u16 = 7171;
+/// 7171–7180 for COAT, 7191–7200 for COAT Preview, so both can run at the same time.
+pub const DEFAULT_PORT: u16 = if crate::update::PREVIEW { 7191 } else { 7171 };
 /// Overrides the first port tried (used by the update test so it can't touch a real COAT).
 const PORT_ENV: &str = "COAT_PORT";
 /// Ports tried in order if 7171 is taken by something else.
@@ -66,7 +67,7 @@ pub fn launch() -> Result<(), String> {
 fn opened(running: &Running, what: &str) -> Result<(), String> {
     let url = running.url();
     serve::open_browser(&url);
-    println!("{what}: {url}");
+    println!("{what}: {url}{}", if crate::update::PREVIEW { "  (PREVIEW)" } else { "" });
     println!("It runs in the background. Use the Quit button in the page to stop it.");
     Ok(())
 }
@@ -83,7 +84,10 @@ pub fn find_running() -> Option<Running> {
         let mut response = agent.get(&format!("http://127.0.0.1:{port}/api/ping")).call().ok()?;
         let body = response.body_mut().read_to_string().ok()?;
         let ping: serde_json::Value = serde_json::from_str(&body).ok()?;
-        (ping["app"] == "coat").then(|| Running { port, version: ping["version"].as_str().unwrap_or("").to_string() })
+        // Only a COAT of the same channel counts; versions before 0.4 didn't say, and were stable.
+        let channel = ping["channel"].as_str().unwrap_or("stable");
+        (ping["app"] == "coat" && channel == crate::update::CHANNEL)
+            .then(|| Running { port, version: ping["version"].as_str().unwrap_or("").to_string() })
     })
 }
 
@@ -98,7 +102,7 @@ fn stop(running: &Running) {
 }
 
 fn log_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("coat.log")
+    std::env::temp_dir().join(if crate::update::PREVIEW { "coat-preview.log" } else { "coat.log" })
 }
 
 /// The first port COAT uses: 7171, or `COAT_PORT` if set.

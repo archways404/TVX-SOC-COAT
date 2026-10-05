@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- COAT Preview icon for 16–32 px: the simplified coat on a green plate. -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#40c057"/>
+      <stop offset="1" stop-color="#0b4a1d"/>
+    </linearGradient>
+  </defs>
+  <rect x="40" y="40" width="944" height="944" rx="200" fill="url(#plate)"/>
+  <g fill="none" stroke="#eef1fa" stroke-linecap="round" stroke-linejoin="round" stroke-width="48">
+    <path d="M512 270 V236 c0 -22 46 -30 46 -64 c0 -24 -20 -42 -46 -42 c-24 0 -42 16 -44 38"/>
+    <path d="M512 270 L280 360 M512 270 L744 360"/>
+  </g>
+  <path d="M300 372 L250 840 L360 846 L392 470 Z" fill="#b8793a"/>
+  <path d="M724 372 L774 840 L664 846 L632 470 Z" fill="#a96d31"/>
+  <path d="M446 300 L578 300 L724 372 L734 600 L764 900 L260 900 L290 600 L300 372 Z" fill="#dda261"/>
+  <path d="M446 304 L512 450 L578 304 Z" fill="#4e2e12"/>
+  <path d="M512 520 V820" stroke="#ffffff" stroke-width="30"/>
+  <g stroke="#ffffff" stroke-width="26">
+    <circle cx="512" cy="540" r="62" fill="#9775fa"/>
+    <circle cx="512" cy="680" r="62" fill="#ffa94d"/>
+    <circle cx="512" cy="820" r="62" fill="#51cf66"/>
+  </g>
+</svg>

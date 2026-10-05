@@ -7,7 +7,7 @@
 use std::fmt::Write;
 use std::sync::LazyLock;
 
-use crate::update::{REPO, VERSION};
+use crate::update::{APP_NAME, CHANNEL, PREVIEW, REPO, VERSION};
 
 pub const CSS: &str = include_str!("assets/coat.css");
 pub const SHELL_JS: &str = include_str!("assets/shell.js");
@@ -18,8 +18,20 @@ const DEVELOPER_NAME: &str = "Philip S";
 const DEVELOPER_INITIALS: &str = "PS";
 const DEVELOPER_GITHUB: &str = "archways404";
 
-static FAVICON: LazyLock<String> = LazyLock::new(|| data_uri(include_bytes!("../packaging/favicon-64.png")));
-static LOGO: LazyLock<String> = LazyLock::new(|| data_uri(include_bytes!("../packaging/logo-160.png")));
+/// The app icon at favicon size; COAT Preview has its own green one.
+pub const FAVICON_PNG: &[u8] = if PREVIEW {
+    include_bytes!("../packaging/favicon-preview-64.png")
+} else {
+    include_bytes!("../packaging/favicon-64.png")
+};
+const LOGO_PNG: &[u8] = if PREVIEW {
+    include_bytes!("../packaging/logo-preview-160.png")
+} else {
+    include_bytes!("../packaging/logo-160.png")
+};
+
+static FAVICON: LazyLock<String> = LazyLock::new(|| data_uri(FAVICON_PNG));
+static LOGO: LazyLock<String> = LazyLock::new(|| data_uri(LOGO_PNG));
 
 pub fn favicon_uri() -> &'static str {
     &FAVICON
@@ -127,10 +139,11 @@ pub fn render(page: &Page) -> String {
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex\">\
          <link rel=\"icon\" type=\"image/png\" href=\"{favicon}\"><title>{title}</title><style>{CSS}</style></head>\
-         <body data-version=\"{VERSION}\" data-root=\"{root}\"><div class=\"shell\" id=\"shell\" data-sidebar=\"expanded\">\
+         <body data-version=\"{VERSION}\" data-channel=\"{CHANNEL}\" data-root=\"{root}\"><div class=\"shell\" id=\"shell\" data-sidebar=\"expanded\">\
          {sidebar}<div class=\"inset\">{header}<main id=\"top\">{body}</main>{footer}</div>\
          <div class=\"sb-backdrop\" id=\"sb-backdrop\"></div></div>{icons}<script>{scripts}</script></body></html>",
-        favicon = favicon_uri(), title = esc(&page.title), root = esc(&page.root),
+        favicon = favicon_uri(), root = esc(&page.root),
+        title = esc(&if PREVIEW { page.title.replacen("COAT", "COAT Preview", 1) } else { page.title.clone() }),
         sidebar = sidebar(page), header = header(page), body = page.body, footer = footer(page),
         icons = if page.served { icon_templates() } else { String::new() })
 }
@@ -140,9 +153,11 @@ fn sidebar(page: &Page) -> String {
     let mut html = format!(
         "<aside class=\"sidebar\" id=\"sidebar\"><div class=\"sb-header\"><div class=\"hc\">\
          <a class=\"sb-brand\" href=\"{home}\" aria-describedby=\"dev-card\"><img src=\"{logo}\" alt=\"\">\
-         <span class=\"sb-brand-text\"><b>COAT</b><small>Call overview &amp; timeline</small></span></a>{card}</div></div>\
+         <span class=\"sb-brand-text\"><b>COAT{pill}</b><small>{subtitle}</small></span></a>{card}</div></div>\
          <div class=\"sb-content\">",
-        logo = favicon_uri(), card = developer_card());
+        logo = favicon_uri(), card = developer_card(),
+        pill = if PREVIEW { "<span class=\"sb-pill\">PREVIEW</span>" } else { "" },
+        subtitle = if PREVIEW { "Preview build" } else { "Call overview &amp; timeline" });
     if page.served {
         let _ = write!(html,
             "<form class=\"sb-search\" action=\"/\" method=\"get\" title=\"Trace a call\">{}\
@@ -166,11 +181,11 @@ fn sidebar(page: &Page) -> String {
         let _ = write!(html,
             "<div id=\"update\"></div>\
              <button class=\"sb-btn upd-mini\" id=\"update-mini\" title=\"Updates\">{download}<span class=\"upd-dot\" hidden></span></button>\
-             <button class=\"sb-btn\" id=\"quit\" title=\"Quit COAT\">{power}<span class=\"sb-text\">Quit COAT</span></button>",
+             <button class=\"sb-btn\" id=\"quit\" title=\"Quit {APP_NAME}\">{power}<span class=\"sb-text\">Quit {APP_NAME}</span></button>",
             download = icon("download"), power = icon("power"));
     }
     let _ = write!(html,
-        "<div class=\"sb-version\">COAT v{VERSION}</div></div>\
+        "<div class=\"sb-version\">{APP_NAME} v{VERSION}</div></div>\
          <button class=\"sb-rail\" data-sidebar-toggle aria-label=\"Toggle sidebar\" title=\"Toggle sidebar (⌘B / Ctrl+B)\"></button></aside>");
     html
 }
@@ -205,13 +220,13 @@ fn developer_card() -> String {
          <div class=\"hc-name\">{name}</div>\
          <a class=\"hc-link\" href=\"https://github.com/{github}\" target=\"_blank\" rel=\"noopener\">{gh}github.com/{github}</a></div></div>\
          <p>Made COAT. Ideas, bugs and pull requests are welcome on GitHub.</p>\
-         <div class=\"hc-meta\"><img src=\"{logo}\" alt=\"\">COAT v{VERSION}\
+         <div class=\"hc-meta\"><img src=\"{logo}\" alt=\"\">{APP_NAME} v{VERSION}\
          <a href=\"https://github.com/{REPO}\" target=\"_blank\" rel=\"noopener\" style=\"margin-left:auto\">Source</a></div></div>",
         initials = DEVELOPER_INITIALS, name = DEVELOPER_NAME, github = DEVELOPER_GITHUB, gh = icon("github"), logo = favicon_uri())
 }
 
 fn header(page: &Page) -> String {
-    let mut crumbs = String::from(if page.served { "<a href=\"/\">COAT</a>" } else { "<span>COAT</span>" });
+    let mut crumbs = if page.served { format!("<a href=\"/\">{APP_NAME}</a>") } else { format!("<span>{APP_NAME}</span>") };
     for (index, crumb) in page.crumbs.iter().enumerate() {
         let last = index + 1 == page.crumbs.len();
         let _ = write!(crumbs, "{}{}", icon("chevron"), if last { format!("<b>{}</b>", esc(crumb)) } else { format!("<span>{}</span>", esc(crumb)) });
@@ -226,10 +241,11 @@ fn header(page: &Page) -> String {
 fn footer(page: &Page) -> String {
     let status = if page.served { "<span id=\"foot-update\"></span>" } else { "" };
     format!(
-        "<footer class=\"site-footer\"><span>COAT v{VERSION}{status}</span><span class=\"grow\"></span>\
+        "<footer class=\"site-footer\"><span>{APP_NAME} v{VERSION}{status}</span>{preview}<span class=\"grow\"></span>\
          <a href=\"https://github.com/{REPO}/releases\" target=\"_blank\" rel=\"noopener\">Releases</a>\
          <a href=\"https://github.com/{REPO}#documentation\" target=\"_blank\" rel=\"noopener\">Documentation</a>\
-         <span>Made by <a href=\"https://github.com/{DEVELOPER_GITHUB}\" target=\"_blank\" rel=\"noopener\">{DEVELOPER_NAME}</a></span></footer>")
+         <span>Made by <a href=\"https://github.com/{DEVELOPER_GITHUB}\" target=\"_blank\" rel=\"noopener\">{DEVELOPER_NAME}</a></span></footer>",
+        preview = if PREVIEW { "<span class=\"sb-pill\" title=\"A preview build from the preview branch\">PREVIEW</span>" } else { "" })
 }
 
 /// Icons the browser code reuses when it redraws the update widget.
@@ -265,6 +281,8 @@ mod tests {
                           body: String::new(), script: String::new(), served: false, root: String::new() };
         let html = render(&page);
         assert!(!html.contains("id=\"quit\"") && !html.contains("recent-list") && !html.contains("id=\"update\""));
-        assert!(html.contains("Philip S") && html.contains(&format!("COAT v{VERSION}")));
+        assert!(html.contains("Philip S") && html.contains(&format!("{APP_NAME} v{VERSION}")));
+        assert!(html.contains(&format!("data-channel=\"{CHANNEL}\"")));
+        assert_eq!(html.contains("PREVIEW"), PREVIEW);
     }
 }

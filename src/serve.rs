@@ -164,7 +164,9 @@ fn handle(request: Request, jobs: &Shared, context: &Context) {
     let response = match path {
         "/" => html(200, landing(context.port)),
         "/api/start" => start(jobs, &params),
-        "/api/ping" => json_response(200, json!({ "app": "coat", "version": env!("CARGO_PKG_VERSION"), "port": context.port })),
+        "/api/ping" => json_response(200, json!({
+            "app": "coat", "version": env!("CARGO_PKG_VERSION"), "channel": crate::update::CHANNEL, "port": context.port,
+        })),
         "/api/recent" => json_response(200, recent_json(jobs)),
         "/api/update" => json_response(200, context.updater.status_json()),
         "/api/update/check" if is_post => {
@@ -189,7 +191,7 @@ fn handle(request: Request, jobs: &Shared, context: &Context) {
             json_response(200, json!({ "ok": true }))
         }
         "/api/quit" => json_response(405, json!({ "error": "use POST" })),
-        "/favicon.ico" => Response::from_data(include_bytes!("../packaging/favicon-64.png").to_vec())
+        "/favicon.ico" => Response::from_data(ui::FAVICON_PNG.to_vec())
             .with_header(header("Content-Type", "image/png")),
         _ if path.starts_with("/api/job/") => job_status(jobs, &path["/api/job/".len()..]),
         _ if path.starts_with("/r/") => report_page(jobs, &path["/r/".len()..]),
