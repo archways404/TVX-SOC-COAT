@@ -32,6 +32,8 @@ cleanup() {
   curl -fsS -X POST "$api/api/quit" >/dev/null 2>&1 || true
   if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
   cp "$work/Cargo.toml.orig" Cargo.toml; cp "$work/Cargo.lock.orig" Cargo.lock
+  # The test builds must not end up next to the real ones (CI publishes what's in dist/).
+  if [ "$os" = mac ]; then rm -rf "dist/$name.app" "dist/COAT_v$old$suffix.zip" "dist/$zip"; fi
   rm -rf "$work"
 }
 trap cleanup EXIT

@@ -1,7 +1,7 @@
 # Builds, tests and releases COAT for macOS and Windows, on two channels:
 #
-#   push or merge to master   → stable release vX.Y.Z (marked "Latest"):   COAT-macOS.zip, COAT.exe
-#   push or merge to preview  → pre-release vX.Y.Z-preview.N:                COAT-PREVIEW-macOS.zip, COAT-PREVIEW.exe
+#   push or merge to master   → stable release vX.Y.Z (marked "Latest"):  COAT_vX.Y.Z.zip, COAT_vX.Y.Z.exe
+#   push or merge to preview  → pre-release vX.Y.Z-preview.N:     COAT_vX.Y.Z-preview.N_PREVIEW.zip / .exe
 #   pull request              → builds and tests (as preview when it targets preview), no release
 #
 # The next version comes from the commit messages since the last stable release, in any case:
@@ -104,7 +104,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: COAT-macOS
-          path: dist/*.zip
+          path: dist/COAT_v${{ needs.version.outputs.version }}*.zip
+          if-no-files-found: error
           retention-days: 14
 
   windows:
@@ -142,7 +143,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: COAT-Windows
-          path: dist/*.exe
+          path: dist/COAT_v${{ needs.version.outputs.version }}*.exe
+          if-no-files-found: error
           retention-days: 14
 
   release:
@@ -168,12 +170,15 @@ jobs:
         run: |
           cd dist
           if [ "$COAT_CHANNEL" = preview ]; then suffix=_PREVIEW legacy=COAT-PREVIEW; else suffix= legacy=COAT; fi
+          # Only this release's own files, never anything else that ended up in dist/.
+          files=("COAT_v$VERSION$suffix.zip" "COAT_v$VERSION$suffix.exe")
           if [ "$LEGACY_FILE_NAMES" = true ]; then
             cp "COAT_v$VERSION$suffix.zip" "$legacy-macOS.zip"
             cp "COAT_v$VERSION$suffix.exe" "$legacy.exe"
+            files+=("$legacy-macOS.zip" "$legacy.exe")
           fi
           # Checksums let installed apps verify an update before installing it.
-          sha256sum -- *.zip *.exe > SHA256SUMS.txt
+          sha256sum -- "${files[@]}" > SHA256SUMS.txt
           if [ "$COAT_CHANNEL" = preview ]; then
             title="COAT Preview $VERSION"; kind=(--prerelease --latest=false)
             notes=$(printf '%s\n' \
@@ -199,7 +204,7 @@ jobs:
           if [ "$LEGACY_FILE_NAMES" = true ]; then
             notes="$notes"$'\n\n'"(\`$legacy-macOS.zip\` and \`$legacy.exe\` are the same files under their old names, for COAT 0.4 and older.)"
           fi
-          gh release create "v$VERSION" *.zip *.exe SHA256SUMS.txt \
+          gh release create "v$VERSION" "${files[@]}" SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "$title" --notes "$notes" --generate-notes "${kind[@]}"
 
