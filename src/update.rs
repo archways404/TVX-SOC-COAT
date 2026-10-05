@@ -203,7 +203,7 @@ impl Updater {
             return;
         }
         self.set_status(Status::Checking);
-        let release = match latest_release() {
+        let release = match no_panic("The update check", latest_release) {
             Ok(release) => release,
             Err(message) => return self.set_status(Status::Failed { message }),
         };
@@ -247,7 +247,7 @@ impl Updater {
 
     fn download_locked(&self, release: &Release, target: &Target) {
         self.set_status(Status::Downloading { version: release.version.clone() });
-        match stage(release, target) {
+        match no_panic("The download", || stage(release, target)) {
             Ok(staged) => {
                 *self.staged.lock().unwrap() = Some(staged);
                 self.set_status(Status::Ready { version: release.version.clone(), notes_url: release.notes_url.clone() });
@@ -255,6 +255,13 @@ impl Updater {
             Err(message) => self.set_status(Status::Failed { message }),
         }
     }
+}
+
+/// Run `f`, turning a panic into an error, so a bug while updating shows as "Update failed"
+/// instead of leaving the sidebar on "Checking…" and stopping all later checks.
+fn no_panic<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+        .unwrap_or_else(|_| Err(format!("{what} crashed. Details are in COAT's log.")))
 }
 
 // ---- talking to GitHub ------------------------------------------------------------------------
@@ -745,6 +752,24 @@ mod tests {
         assert!(parse_release(&json).is_err());
         assert!(allowed_url("http://127.0.0.1:8765/COAT.exe"));
         assert!(!allowed_url("http://example.test/COAT.exe"));
+    }
+
+    /// Released builds talk to GitHub over https. With the wrong ureq features every https
+    /// request panics (COAT 1.1.0 and older), so updates never arrived. A local socket that
+    /// isn't TLS must give an ordinary error instead.
+    #[test]
+    fn https_requests_fail_cleanly_instead_of_panicking() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                drop(stream);
+            }
+        });
+        let result = std::panic::catch_unwind(|| {
+            agent(Duration::from_secs(5)).get(&format!("https://127.0.0.1:{port}/")).call().map(|_| ())
+        });
+        assert!(result.expect("an https request panicked: is ureq's native-tls feature on?").is_err());
     }
 
     #[test]
