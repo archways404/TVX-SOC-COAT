@@ -84,14 +84,24 @@ The version is decided by the messages of the commits and merges since the last 
 Something is broken in `v1.5.0` and can't wait for the next preview round:
 
 1. Branch off `master`, fix it, and open a pull request **into `master`**. Merging releases `v1.5.1`.
-2. Then merge `master` back into `preview` (a pull request from `master` into `preview`), so the
-   fix is in the previews too and the two branches don't drift apart.
+2. The workflow then merges `master` back into `preview` by itself (see below), so the fix is in
+   the previews too and the two branches don't drift apart.
 
 ### Keeping `preview` up to date
 
-After every release from `master`, merge `master` back into `preview`. Then `preview` always
-contains everything that's released, and the next preview starts from the new version (after
-`v1.5.0`, the next preview is `v1.5.1-preview.1`, or `v1.6.0-preview.1` after a `#minor`).
+After every release from `master`, the workflow merges `master` back into `preview` by itself
+(the **sync-preview** step). Then `preview` always contains everything that's released, and the
+next preview starts from the new version (after `v1.5.0`, the next preview is `v1.5.1-preview.1`,
+or `v1.6.0-preview.1` after a `#minor`).
+
+- Right after `preview` was merged into `master` this is just a fast-forward: no new commit.
+- After a hotfix on `master` it makes a merge commit on `preview`, "Merge master (v1.5.1) into preview".
+- It doesn't publish a preview by itself. The next change merged into `preview` does.
+- If `master` and `preview` changed the same lines, it can't merge them. The run then shows an
+  error on **sync-preview**, and `preview` is left as it was. Open a pull request from `master`
+  into `preview`, fix the conflict there, and merge it.
+- If `preview` is protected so that only pull requests may change it, allow GitHub Actions to push
+  to it, or the step fails the same way.
 
 ### Undoing a release
 
@@ -106,7 +116,7 @@ The workflow is `.github/workflows/build.yml`, run by GitHub Actions. On every p
 
 ```
 version ─► macos ─────┐
-         ─► windows ──┴─► release
+         ─► windows ──┴─► release ─► sync-preview (master only)
 ```
 
 1. **version** tests the version rules, then works out the next version number for the branch's
@@ -122,14 +132,16 @@ version ─► macos ─────┐
    `SHA256SUMS.txt` (the checksums installed copies use to verify an update), a short "how to
    install" note, and a list of the changes since the previous release (generated from merged
    pull requests and commit messages).
+5. **sync-preview** (only on `master`) merges `master` back into `preview`; see
+   [Keeping `preview` up to date](#keeping-preview-up-to-date).
 
 Builds made by this workflow are **official**: they know which repository they came from
 (`COAT_REPO`) and update themselves from its releases (`COAT_RELEASE_BUILD`). Within a few hours of
 a release, everyone's running COAT shows "Update ready" in its sidebar.
 
-The files always have the same names, so the download links in the README
-(`…/releases/latest/download/COAT.exe`) always point to the newest stable version. "Latest" never
-points at a pre-release.
+The files are named after their version (see [Release files](#release-files)), so the README
+links to the [latest release page](https://github.com/archways404/TVX-SOC-COAT/releases/latest)
+rather than to a file. "Latest" never points at a pre-release.
 
 Also good to know:
 
@@ -140,8 +152,9 @@ Also good to know:
 - **One release at a time per branch**: if two merges to the same branch happen close together,
   the second waits for the first, so they can't get the same version number.
 - **Re-running** a workflow for a commit that's already released doesn't publish it twice.
-- **Nothing is committed back** to the branches. The version number lives in the release's tag;
-  the workflow stamps it into `Cargo.toml` only for the build.
+- **No version commits.** The version number lives in the release's tag; the workflow stamps it
+  into `Cargo.toml` only for the build. The only thing the workflow pushes is the merge of
+  `master` into `preview`.
 
 ## Version numbers
 

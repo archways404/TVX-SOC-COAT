@@ -235,3 +235,36 @@ jobs:
           git diff --cached --quiet && { echo "cask already up to date"; exit 0; }
           git commit -m "$cask $VERSION"
           git push
+
+  # After a stable release, bring master back into preview, so preview always contains what's
+  # released and the next preview starts from the new version. Usually this is a fast-forward
+  # (preview was just merged into master). The push uses the workflow's own token, so it doesn't
+  # start another run: the same code doesn't need a preview release of its own.
+  sync-preview:
+    needs: [version, release]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: preview
+          fetch-depth: 0
+      - name: Merge master into preview
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git merge-base --is-ancestor origin/master HEAD; then
+            echo "preview already contains master"
+            exit 0
+          fi
+          if ! git merge --no-edit -m "Merge master (v$VERSION) into preview" origin/master; then
+            git merge --abort
+            echo "::error::master and preview conflict, so preview wasn't updated. Merge them by hand: open a pull request from master into preview. See docs/releasing.md."
+            exit 1
+          fi
+          git push origin HEAD:preview
+          echo "### preview now contains v$VERSION" >> "$GITHUB_STEP_SUMMARY"
