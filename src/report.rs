@@ -8,58 +8,22 @@ use regex::Regex;
 use serde_json::{Value, json};
 
 use crate::trace::{Activity, CallTrace, QueueVisit, Step, format_duration};
+pub use crate::ui::esc;
+use crate::ui::{NavGroup, NavItem, Page, SubItem, icon};
 
-/// The app icon, compiled in so the standalone report file carries it too.
-static FAVICON: LazyLock<String> = LazyLock::new(|| data_uri(include_bytes!("../packaging/favicon-64.png")));
-static LOGO: LazyLock<String> = LazyLock::new(|| data_uri(include_bytes!("../packaging/logo-160.png")));
-
-pub fn logo_uri() -> &'static str {
-    &LOGO
-}
-
-pub fn favicon_uri() -> &'static str {
-    &FAVICON
-}
-
-fn data_uri(png: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::from("data:image/png;base64,");
-    for chunk in png.chunks(3) {
-        let bytes = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (u32::from(bytes[0]) << 16) | (u32::from(bytes[1]) << 8) | u32::from(bytes[2]);
-        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            out.push(if i <= chunk.len() { ALPHABET[(n >> shift & 63) as usize] as char } else { '=' });
-        }
-    }
-    out
-}
+const REPORT_JS: &str = include_str!("assets/report.js");
 
 static SHORT_ANSWERED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^answered by queue agent after (.+)$").unwrap());
 
 pub struct Options {
     /// Embed every log row, chatty ones too.
     pub full_log: bool,
-    /// Rendered by `coat serve`: adds the "trace another call" box and a refresh link.
+    /// Rendered by the running app: adds search, recent traces, updates, Quit and a refresh link.
     pub served: Option<Served>,
 }
 
 pub struct Served {
     pub refresh_url: String,
-}
-
-pub fn esc(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 fn hms(time: NaiveDateTime) -> String {
@@ -89,49 +53,68 @@ pub fn render(trace: &CallTrace, options: &Options) -> String {
     body.push_str(&section("SIP ladder", "sip", &sip_ladder(trace)));
     body.push_str(&section("Call summaries", "summaries", &call_summaries(trace)));
     body.push_str(&section("Log", "log", &log_explorer(trace, options.full_log)));
-    let script = if options.served.is_some() { format!("{REPORT_JS}{}", crate::serve::QUIT_JS) } else { REPORT_JS.to_string() };
-    page(&format!("COAT {}", trace.root), &topbar(trace, options.served.as_ref()), &body, &script)
+    crate::ui::render(&Page {
+        title: format!("COAT {}", trace.root),
+        crumbs: vec![format!("{} → {}", trace.caller, trace.dialed)],
+        header_right: header_badges(trace, options.served.as_ref()),
+        nav: navigation(trace),
+        body,
+        script: REPORT_JS.to_string(),
+        served: options.served.is_some(),
+        root: trace.root.clone(),
+    })
 }
 
-pub fn page(title: &str, topbar: &str, body: &str, script: &str) -> String {
-    format!(
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\
-         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex\">\
-         <link rel=\"icon\" type=\"image/png\" href=\"{favicon}\">\
-         <title>{}</title><style>{CSS}</style></head><body>{topbar}<main>{body}</main><script>{script}</script></body></html>",
-        esc(title),
-        favicon = favicon_uri()
-    )
+/// The sidebar for a report: every section, and every step under "Steps".
+fn navigation(trace: &CallTrace) -> Vec<NavGroup> {
+    let item = |href: &str, label: &str, icon: &'static str| NavItem {
+        href: format!("#{href}"), label: label.into(), icon, spy: Some(href.into()), badge: None, children: vec![],
+    };
+    let worth_a_look = trace.issues.iter().filter(|i| !i.usually_noise).count();
+    let steps = NavItem {
+        children: trace.steps.iter().map(|s| SubItem {
+            href: format!("#step-{}", s.index),
+            label: format!("{} · {}", s.number, if s.name.is_empty() { s.label() } else { s.name.clone() }),
+            spy: format!("step-{}", s.index),
+            kind: s.kind.clone(),
+        }).collect(),
+        badge: Some((trace.steps.len().to_string(), false)),
+        ..item("steps", "Steps", "steps")
+    };
+    let issues = NavItem {
+        badge: (worth_a_look > 0).then(|| (worth_a_look.to_string(), true)),
+        ..item("issues", "Issues", "alert")
+    };
+    let variables = NavItem { badge: Some((trace.variables.len().to_string(), false)), ..item("variables", "Variables", "braces") };
+    vec![NavGroup {
+        label: "This call".into(),
+        items: vec![
+            item("overview", "Overview", "overview"),
+            item("route", "Route", "route"),
+            item("time", "Where the time went", "clock"),
+            steps,
+            issues,
+            variables,
+            item("sip", "SIP ladder", "ladder"),
+            item("summaries", "Call summaries", "chart"),
+            item("log", "Log", "log"),
+        ],
+    }]
+}
+
+fn header_badges(trace: &CallTrace, served: Option<&Served>) -> String {
+    let scrub = if trace.bundle.scrubbed {
+        "<span class='badge ok'>scrubbed</span>"
+    } else {
+        "<span class='badge warn' title='Contains personal data. Do not paste or share.'>UNSCRUBBED · personal data</span>"
+    };
+    let refresh = served.map_or(String::new(), |s| format!(
+        "<a class='icon-btn' href='{}' title='Fetch this session again from simlog'>{}</a>", esc(&s.refresh_url), icon("refresh")));
+    format!("<code class='hide-sm'>{}</code><span class='badge hide-sm'>{}</span>{scrub}{refresh}",
+            esc(&trace.root), esc(&trace.bundle.env))
 }
 
 // ---- top of the page -------------------------------------------------------------------------
-
-fn topbar(trace: &CallTrace, served: Option<&Served>) -> String {
-    let bundle = &trace.bundle;
-    let scrub = if bundle.scrubbed {
-        "<span class='badge ok'>scrubbed</span>".to_string()
-    } else {
-        "<span class='badge warn' title='Contains personal data. Do not paste or share.'>UNSCRUBBED · personal data</span>".to_string()
-    };
-    let links: String = [("route", "Route"), ("steps", "Steps"), ("issues", "Issues"), ("variables", "Variables"),
-                         ("sip", "SIP"), ("log", "Log")]
-        .iter()
-        .map(|(anchor, label)| format!("<a href='#{anchor}'>{label}</a>"))
-        .collect();
-    let search = match served {
-        Some(served) => format!(
-            "<form class='mini' action='/' method='get'><input name='q' placeholder='Trace another call…' autocomplete='off'></form>\
-             <a class='badge' href='{}' title='Fetch this session again from simlog'>↻ refresh</a>\
-             <button class='ghost' id='quit' title='Stop COAT'>Quit</button>",
-            esc(&served.refresh_url)),
-        None => String::new(),
-    };
-    let home = if served.is_some() { "href='/'" } else { "" };
-    format!(
-        "<header class='topbar'><a class='brand' {home}><img src='{icon}' alt=''>COAT<span>call overview &amp; timeline</span></a><nav>{links}</nav>\
-         <div class='meta'>{search}<code>{}</code><span class='badge'>{}</span>{scrub}</div></header>",
-        esc(&trace.root), esc(&bundle.env), icon = favicon_uri())
-}
 
 fn hero(trace: &CallTrace) -> String {
     let outcome = &trace.outcome;
@@ -158,7 +141,7 @@ fn hero(trace: &CallTrace) -> String {
     let oneliner = trace.bundle.session(&trace.root).map(|s| s.oneliner()).unwrap_or_default();
     let simlog_says = if oneliner.is_empty() { String::new() } else { format!(" · simlog says: “{}”", esc(&oneliner)) };
     format!(
-        "<section class='hero'><h1><span>{}</span><i>calls</i><span>{}</span></h1>\
+        "<section class='hero' id='overview'><h1><span>{}</span><i>calls</i><span>{}</span></h1>\
          <p class='verdict {state}'>{}</p><div class='pills'>{}</div>\
          <p class='muted small'>Sessions: {sessions}{simlog_says}</p></section>",
         esc(&trace.caller), esc(&trace.dialed), esc(&outcome.summary), pills.join(""))
@@ -210,7 +193,7 @@ fn time_bar(trace: &CallTrace) -> String {
                     esc(&step.kind), step.index, esc(&label))
         })
         .collect();
-    format!("<section><h2>Where the time went</h2><div class='timebar'>{segments}</div>\
+    format!("<section id='time'><h2>Where the time went</h2><div class='timebar'>{segments}</div>\
              <div class='timeaxis'><span>{}</span><span>{}</span></div></section>", hms(trace.start), hms(trace.end))
 }
 
@@ -502,214 +485,4 @@ fn log_explorer(trace: &CallTrace, full_log: bool) -> String {
 
 fn section(title: &str, anchor: &str, body: &str) -> String {
     format!("<section id='{anchor}'><h2>{}</h2>{body}</section>", esc(title))
-}
-
-pub const CSS: &str = r#"
-:root{--bg:#f7f7f5;--panel:#fff;--ink:#1d1f23;--muted:#6b7079;--line:#e3e3df;--soft:#f0f0ec;
---accent:#3b5bdb;--ok:#2b8a3e;--bad:#c92a2a;--warn:#b35c00;
---k-refer:#7048e8;--k-anumber:#1c7ed6;--k-ivrscript:#e67700;--k-queue:#0c8599;--k-agent:#2b8a3e;--k-other:#495057;
---mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111214;--panel:#1a1c20;--ink:#e6e6e3;--muted:#9aa0a8;
---line:#2c2f35;--soft:#22252a;--accent:#8ea2ff;--ok:#51cf66;--bad:#ff6b6b;--warn:#ffa94d;
---k-refer:#9775fa;--k-anumber:#4dabf7;--k-ivrscript:#ffa94d;--k-queue:#3bc9db;--k-agent:#51cf66;--k-other:#adb5bd;color-scheme:dark}}
-:root[data-theme=dark]{--bg:#111214;--panel:#1a1c20;--ink:#e6e6e3;--muted:#9aa0a8;--line:#2c2f35;--soft:#22252a;--accent:#8ea2ff;
---ok:#51cf66;--bad:#ff6b6b;--warn:#ffa94d;--k-refer:#9775fa;--k-anumber:#4dabf7;--k-ivrscript:#ffa94d;--k-queue:#3bc9db;--k-agent:#51cf66;--k-other:#adb5bd;color-scheme:dark}
-*{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:1240px;margin:0 auto;padding:0 16px 80px}
-code,.mono{font-family:var(--mono);font-size:12.5px}
-a{color:var(--accent);text-decoration:none}
-.muted{color:var(--muted)}.small{font-size:12px}
-h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:34px 0 12px}
-h3{margin:0;font-size:17px}h4{margin:0 0 6px;font-size:13px}
-button{font:inherit;padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
-button.ghost{font-size:12px;padding:3px 10px;color:var(--muted)}button.ghost:hover{color:var(--ink)}
-.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px}.sectionhead h2{margin-bottom:12px}
-.topbar{position:sticky;top:0;z-index:5;display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:9px 16px;
-background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
-.brand{font-weight:800;letter-spacing:.14em;color:var(--ink);display:flex;align-items:center;gap:8px}.brand img{width:24px;height:24px}
-.landing .logo{width:112px;height:112px;margin-bottom:6px;filter:drop-shadow(0 10px 24px rgba(20,30,90,.35))}.brand span{font-weight:400;letter-spacing:0;color:var(--muted);margin-left:8px;font-size:12px}
-.topbar nav{display:flex;gap:14px;flex-wrap:wrap}.topbar nav a{color:var(--ink);font-size:13px}
-.topbar .meta{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.mini input{width:220px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:12.5px}
-.badge{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--soft);border:1px solid var(--line);color:var(--ink)}
-.badge.warn{color:var(--warn);border-color:var(--warn);font-weight:600}.badge.ok{color:var(--ok)}
-.hero{padding:28px 0 0}.hero h1{margin:0;font-size:30px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;font-family:var(--mono)}
-.hero h1 i{font-style:normal;font-weight:400;color:var(--muted);font-size:17px;font-family:system-ui,sans-serif}
-.verdict{font-size:18px;font-weight:600;margin:6px 0 10px}.verdict.ok{color:var(--ok)}.verdict.bad{color:var(--bad)}
-.pills{display:flex;flex-wrap:wrap;gap:6px}.pill{background:var(--panel);border:1px solid var(--line);border-radius:99px;padding:3px 10px;font-size:12.5px}
-.k-refer{--kc:var(--k-refer)}.k-anumber{--kc:var(--k-anumber)}.k-ivrscript{--kc:var(--k-ivrscript)}.k-queue{--kc:var(--k-queue)}
-.k-agent,.k-answered{--kc:var(--k-agent)}
-/* the route, on one line */
-.metro{display:flex;align-items:flex-start;overflow-x:auto;padding:4px 4px 12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
-padding:14px 18px 16px;scrollbar-width:thin}
-.stop{flex:0 1 auto;min-width:88px;max-width:150px;display:flex;flex-direction:column;align-items:center;text-align:center;color:var(--ink);
-position:relative;z-index:1;padding:0 2px}
-.stop .dot{width:20px;height:20px;border-radius:50%;background:var(--panel);border:5px solid var(--kc,var(--k-other));margin:30px 0 8px;flex:none;transition:transform .15s}
-a.stop:hover .dot{transform:scale(1.2)}
-.stop b{font-family:var(--mono);font-size:13px;white-space:nowrap}
-.stop small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;line-height:1.35}
-.stop .kind{color:var(--kc,var(--muted));font-weight:600}.stop .nm{color:var(--ink);opacity:.8}.stop .dur{color:var(--muted)}
-.stop.caller{--kc:var(--muted)}.stop.caller .dot{border-style:dashed}
-.hop{flex:1 1 70px;min-width:92px;position:relative;height:56px}
-.hop::before{content:"";position:absolute;left:-46px;right:-46px;top:38px;height:3px;background:var(--line);z-index:0;border-radius:2px}
-.hop::after{content:"";position:absolute;right:-2px;top:34px;border:5.5px solid transparent;border-left:7px solid var(--muted);border-right:0}
-.hop span{position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:flex-end;justify-content:center;text-align:center;
-font-size:11.5px;line-height:1.2;color:var(--accent);font-weight:500;padding:0 4px;overflow-wrap:anywhere}
-.timebar{display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--panel)}
-.seg{background:var(--kc,var(--k-other));color:#fff;font-size:11.5px;display:flex;align-items:center;justify-content:center;
-white-space:nowrap;overflow:hidden;border-right:2px solid var(--panel);min-width:4px}
-.timeaxis{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;font-family:var(--mono)}
-.step{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--kc,var(--k-other));border-radius:10px;padding:16px;margin:0 0 14px;scroll-margin-top:70px}
-.stephead{display:flex;gap:12px;align-items:flex-start}
-.idx{flex:none;width:30px;height:30px;border-radius:50%;background:var(--kc,var(--k-other));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
-.chip{font-size:11.5px;font-weight:600;color:var(--kc);border:1px solid var(--kc);border-radius:99px;padding:1px 8px;vertical-align:middle}
-.stephead .name{font-weight:400;color:var(--muted);font-size:14px}
-.arrival{margin:12px 0 0;padding:8px 12px;background:var(--soft);border-radius:8px}.arrival ul{margin:4px 0 0;padding-left:18px}
-.stepbody{display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:16px;margin-top:12px}
-.facts{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0;font-size:12.5px;align-content:start}
-.facts dt{color:var(--muted)}.facts dd{margin:0;word-break:break-word}
-.act{display:grid;grid-template-columns:62px 18px 1fr;gap:6px;padding:2px 0;font-size:13px;border-bottom:1px dashed var(--soft)}
-.act .t{font-family:var(--mono);font-size:12px;color:var(--muted)}.act .ic{text-align:center;color:var(--muted)}
-.act .tx{word-break:break-word}.count{margin-left:6px;font-size:11px;color:var(--muted);background:var(--soft);padding:0 6px;border-radius:99px}
-.a-warn .ic,.a-warn .tx{color:var(--warn)}.a-error .ic,.a-error .tx{color:var(--bad);font-weight:600}
-.a-route .tx{color:var(--accent)}.a-dtmf .ic{color:var(--accent);font-weight:700}.a-prompt .tx{color:var(--muted)}
-details{margin-top:10px}summary{cursor:pointer;color:var(--accent);font-size:13px}
-.lines>div{white-space:pre-wrap;word-break:break-word;padding:1px 0}.lines .t{color:var(--muted);margin-right:8px}.lines .src{color:var(--k-ivrscript);margin-right:8px}
-.loglink{display:inline-block;margin-top:10px;font-size:12.5px}
-.queue{display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:16px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
-.chart{margin:0}.chart figcaption{font-size:12px;color:var(--muted)}.chart svg{width:100%;height:auto}
-.chart .line{fill:none;stroke:var(--k-queue);stroke-width:2}.chart circle{fill:var(--k-queue)}
-.chart .axis{stroke:var(--line)}.chart text{fill:var(--muted);font-size:11px;font-family:var(--mono)}.chart .attempt{stroke:var(--k-agent);stroke-dasharray:3 3}
-.legs{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:14px}
-.leg{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--soft)}
-table.grid{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel)}
-.grid th{text-align:left;font-weight:600;color:var(--muted);font-size:12px;border-bottom:1px solid var(--line);padding:6px 8px}
-.grid td{border-bottom:1px solid var(--soft);padding:5px 8px;vertical-align:top;word-break:break-word}
-section>table.grid,#issues table{border:1px solid var(--line);border-radius:8px}
-.issues .lvl-ERROR b{color:var(--bad)}.issues .lvl-WARN b{color:var(--warn)}.issues tr.noise{display:none}.issues.shownoise tr.noise{display:table-row;opacity:.6}
-.toggle{display:block;margin-bottom:8px;font-size:13px;color:var(--muted)}
-.filter{width:100%;max-width:420px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);margin-bottom:8px;font:inherit}
-.scrollx{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
-.ladder text{font-size:11.5px;fill:var(--ink)}.ladder .party{font-weight:700;font-family:var(--mono)}.ladder .life{stroke:var(--line);stroke-width:2}
-.ladder .msg rect{fill:transparent}.ladder .msg:hover rect,.ladder .msg.sel rect{fill:var(--soft)}.ladder .msg{cursor:pointer}
-.ladder .msg line{stroke:var(--accent);stroke-width:1.5}.ladder .msg path{fill:var(--accent)}.ladder .t{fill:var(--muted);font-family:var(--mono);font-size:11px}
-.ladder .m-resp line{stroke:var(--ok)}.ladder .m-resp path{fill:var(--ok)}.ladder .m-err line{stroke:var(--bad)}.ladder .m-err path{fill:var(--bad)}
-.ladder .m-dtmf line{stroke:var(--muted);stroke-dasharray:4 3}.ladder .m-dtmf path{fill:var(--muted)}
-.sipmsg{white-space:pre-wrap;word-break:break-all;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:420px;overflow:auto}
-.logbar{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}.logbar .filter{margin:0}
-.logbar select{padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;max-width:100%}
-.logrows{background:var(--panel);border:1px solid var(--line);border-radius:8px;max-height:70vh;overflow:auto}
-.lr{display:grid;grid-template-columns:96px 52px 110px 1fr;gap:8px;padding:2px 8px;border-bottom:1px solid var(--soft);font-size:12px}
-.lr .lv-WARN{color:var(--warn)}.lr .lv-ERROR{color:var(--bad);font-weight:700}.lr .ap{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lr .m{word-break:break-word;white-space:pre-wrap}.lr .loc{color:var(--muted)}.lr.hasbody{cursor:pointer}.lr .body{grid-column:1/-1;white-space:pre-wrap;color:var(--muted);display:none}
-.lr.open .body{display:block}
-#logmore{margin-top:8px}
-@media (max-width:820px){.stepbody,.queue{grid-template-columns:1fr}.lr{grid-template-columns:80px 1fr}.lr .lv,.lr .ap{display:none}.mini input{width:150px}}
-/* landing page */
-.landing{max-width:760px;margin:12vh auto 0;text-align:center}
-.landing h1{font-size:44px;letter-spacing:.16em;margin:0}.landing .tag{color:var(--muted);margin:4px 0 28px}
-.bigsearch{display:flex;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
-.bigsearch input[type=text]{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;font-size:16px;padding:8px 10px;outline:none}
-.bigsearch button{background:var(--accent);color:#fff;border:0;padding:8px 20px;border-radius:10px;font-weight:600}
-.opts{display:flex;justify-content:center;gap:16px;margin-top:12px;font-size:13px;color:var(--muted)}
-.progress{margin:22px auto 0;text-align:left;max-width:760px;display:none}.progress.on{display:block}
-.progress .bar{height:3px;border-radius:2px;background:var(--soft);overflow:hidden}.progress .bar i{display:block;height:100%;width:30%;background:var(--accent);animation:slide 1.1s infinite ease-in-out}
-@keyframes slide{0%{margin-left:-30%}100%{margin-left:100%}}
-.progress pre{font-family:var(--mono);font-size:12px;color:var(--muted);margin:10px 0 0;white-space:pre-wrap}
-.progress .error{color:var(--bad);font-weight:600;margin-top:10px}
-.recent{margin:46px auto 0;max-width:760px;text-align:left}.recent a{display:flex;gap:12px;align-items:baseline;padding:9px 12px;border:1px solid var(--line);
-background:var(--panel);border-radius:10px;margin-bottom:6px;color:var(--ink)}.recent a:hover{border-color:var(--accent)}
-.corner{position:fixed;top:12px;right:16px}
-.helpcard{margin:46px auto 0;max-width:760px;text-align:left;border:1px dashed var(--line);border-radius:12px;padding:4px 18px 10px;background:var(--panel)}
-.helpcard p{margin:8px 0}
-.bookmarklet{display:inline-block;padding:7px 16px;border-radius:99px;background:var(--accent);color:#fff;font-weight:600;cursor:grab}
-.recent code{color:var(--accent)}.recent .when{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
-"#;
-
-const REPORT_JS: &str = r#"
-(() => {
-  const $ = (s) => document.querySelector(s);
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-  const copy = $('#copyroute');
-  if (copy) copy.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(copy.dataset.text); copy.textContent = 'Copied ✓'; }
-    catch (e) { copy.textContent = 'Copy failed'; }
-    setTimeout(() => { copy.textContent = 'Copy route as text'; }, 1600);
-  });
-
-  const noise = $('#shownoise');
-  if (noise) noise.addEventListener('change', () => $('table.issues').classList.toggle('shownoise', noise.checked));
-
-  const vf = $('#varfilter');
-  if (vf) vf.addEventListener('input', () => {
-    const q = vf.value.toLowerCase();
-    document.querySelectorAll('#vartable tr[data-step]').forEach((tr) => {
-      tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
-    });
-  });
-
-  const sipData = $('#sipdata') ? JSON.parse($('#sipdata').textContent) : [];
-  document.querySelectorAll('.ladder .msg').forEach((g) => g.addEventListener('click', () => {
-    document.querySelectorAll('.ladder .msg.sel').forEach((x) => x.classList.remove('sel'));
-    g.classList.add('sel');
-    const m = sipData[+g.dataset.i];
-    $('#sipmsg').textContent = `${m.t}  ${m.f} → ${m.to}  [${m.s}]  ${m.c || ''}\n\n${m.m || m.l}`;
-  }));
-
-  const logData = $('#logdata') ? JSON.parse($('#logdata').textContent) : [];
-  const rowsEl = $('#logrows'), more = $('#logmore'), countEl = $('#logcount');
-  const PAGE = 1500;
-  let matches = [], shown = 0;
-  function rowHtml(r) {
-    const [t, sess, host, app, level, loc, msg, body, , thread] = r;
-    return `<div class="lr${body ? ' hasbody' : ''}"><span>${esc(t)}</span><span class="lv lv-${esc(level)}">${esc(level)}</span>` +
-      `<span class="ap" title="${esc(host)} ${esc(app)} [${esc(sess)}] ${esc(thread || '')}">${esc(app)}</span>` +
-      `<span class="m">${esc(msg)} <span class="loc">${esc(loc)}</span></span>` +
-      (body ? `<span class="body">${esc(body)}</span>` : '') + `</div>`;
-  }
-  function renderMore() {
-    rowsEl.insertAdjacentHTML('beforeend', matches.slice(shown, shown + PAGE).map(rowHtml).join(''));
-    shown = Math.min(shown + PAGE, matches.length);
-    more.hidden = shown >= matches.length;
-  }
-  function applyFilter() {
-    const text = $('#logfilter').value, step = $('#logstep').value, app = $('#logapp').value, level = $('#loglevel').value;
-    let re = null;
-    if (text) { try { re = new RegExp(text, 'i'); } catch (e) { re = null; } }
-    const needle = text.toLowerCase();
-    matches = logData.filter((r) => {
-      if (step && String(r[8]) !== step) return false;
-      if (app && r[3] !== app) return false;
-      if (level === 'PROBLEM' ? !(r[4] === 'WARN' || r[4] === 'ERROR') : (level && r[4] !== level)) return false;
-      if (!text) return true;
-      const hay = r[6] + ' ' + r[5] + ' ' + r[7];
-      return re ? re.test(hay) : hay.toLowerCase().includes(needle);
-    });
-    rowsEl.innerHTML = ''; shown = 0; countEl.textContent = matches.length; renderMore();
-  }
-  if (rowsEl) {
-    ['#logfilter', '#logstep', '#logapp', '#loglevel'].forEach((s) => $(s).addEventListener('input', applyFilter));
-    more.addEventListener('click', renderMore);
-    rowsEl.addEventListener('click', (e) => { const lr = e.target.closest('.lr.hasbody'); if (lr) lr.classList.toggle('open'); });
-    document.querySelectorAll('.loglink').forEach((a) => a.addEventListener('click', () => {
-      $('#logstep').value = a.dataset.step; applyFilter();
-    }));
-    applyFilter();
-  }
-})();
-"#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_matches_known_values() {
-        assert_eq!(data_uri(b"Man"), "data:image/png;base64,TWFu");
-        assert_eq!(data_uri(b"Ma"), "data:image/png;base64,TWE=");
-        assert_eq!(data_uri(b"M"), "data:image/png;base64,TQ==");
-        assert!(favicon_uri().starts_with("data:image/png;base64,iVBORw0KGgo"));
-    }
 }

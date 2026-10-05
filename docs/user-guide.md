@@ -7,9 +7,11 @@ This guide is for everyone who uses COAT. You don't need any technical backgroun
 - [The first time you open it](#the-first-time-you-open-it)
 - [Tracing a call](#tracing-a-call)
 - [One click from simlog](#one-click-from-simlog)
+- [Finding your way around](#finding-your-way-around)
 - [Reading a report](#reading-a-report)
 - [Personal data: scrubbed and unscrubbed](#personal-data-scrubbed-and-unscrubbed)
-- [Stopping and updating COAT](#stopping-and-updating-coat)
+- [Updates](#updates)
+- [Stopping COAT](#stopping-coat)
 - [Troubleshooting](#troubleshooting)
 
 ## What COAT does
@@ -73,8 +75,8 @@ You only do this once.
    an hour in a queue) can take 15–20 seconds, because simlog needs time to hand over all the log
    lines. COAT shows its progress while it works.
 
-The report opens when it's done. Recent traces are listed on the start page, and opening one again
-within 15 minutes is instant. Tick **don't use a cached result** to fetch a fresh copy.
+The report opens when it's done. The calls you've traced are listed under **Recent** in the sidebar,
+and opening one again within 15 minutes is instant. Tick **don't use a cached result** to fetch a fresh copy.
 
 ## One click from simlog
 
@@ -88,6 +90,22 @@ You can open any simlog page in COAT with one click, straight from simlog:
 
 COAT has to be running for this to work. If the bookmark opens a page that says it can't connect,
 double-click COAT first and try again.
+
+## Finding your way around
+
+The **sidebar** on the left is how you get around:
+
+- **Trace a call…** at the top: paste a link or session id and press Enter. Press `/` to jump to it.
+- **This call** lists every part of the report you're reading. Click one to jump there; the part
+  on screen is highlighted as you scroll. Under **Steps** there's one entry per stop of the route,
+  in the same colour as on the route line. The numbers show how many steps and how many problems
+  worth a look there are.
+- **Recent** lists the calls you've traced since COAT started.
+- At the bottom: whether COAT is up to date, **Quit COAT**, and the version.
+
+To make more room, collapse the sidebar to a narrow strip of icons with the button at the top left,
+or with **⌘B** (Mac) / **Ctrl+B** (Windows). COAT remembers your choice. In a narrow window the
+sidebar hides completely and slides in when you click that button.
 
 ## Reading a report
 
@@ -159,12 +177,36 @@ typed (such as an ID number). That's usually what you need to troubleshoot, but 
 
 See [Privacy and security](privacy-and-security.md) for the details.
 
-## Stopping and updating COAT
+## Updates
 
-- **To stop COAT**, click **Quit COAT** (top right of the start page, or **Quit** in a report).
-  COAT also stops by itself after 12 hours without use.
-- **To update**, download COAT again from the links above and replace the old one. If an older
-  version is still running when you open the new one, the new one takes over automatically.
+COAT keeps itself up to date. A few seconds after it starts, and every few hours after that, it
+checks whether there's a new version. What you see at the bottom of the sidebar:
+
+| Sidebar says | What it means |
+|---|---|
+| **Up to date** | You have the newest version. **Check now** checks again. |
+| **Downloading v…** | A new version is on its way; you can keep working. |
+| **v… is ready**, with **Restart to update** | Click it to switch to the new version now. COAT restarts in a few seconds and opens the call you were looking at again. If you don't click, it installs by itself the next time COAT has been unused for half an hour. |
+| **v… is available**, with **Download** | COAT can't replace itself where it is (see below). Download the new version and replace the old one by hand. |
+| **Update failed** | Usually a network hiccup. **Try again**, or download the new version by hand. |
+
+Untick **Update automatically** if you'd rather decide yourself: COAT then still tells you about new
+versions, but only downloads one when you click **Download & install**.
+
+COAT can't update itself when:
+
+- **Mac**: it isn't in your **Applications** folder (for example, you opened it straight from
+  Downloads). Move it to Applications and open it again.
+- **Windows**: it's in a folder you're not allowed to change. Move `COAT.exe` to, for example, your
+  desktop or Documents.
+
+Every update is checked against a fingerprint (a SHA-256 checksum) published with the release before
+it's installed, so a damaged or tampered download is never used.
+
+## Stopping COAT
+
+Click **Quit COAT** at the bottom of the sidebar. COAT also stops by itself after 12 hours without
+use. Double-click COAT to start it again.
 
 ## Troubleshooting
 
@@ -176,6 +218,7 @@ See [Privacy and security](privacy-and-security.md) for the details.
 | *"This copy of COAT doesn't know the address of the … simlog"* | You have an unofficial build. Download COAT from the links above. |
 | The **Open in COAT** bookmark says the page can't be reached | COAT isn't running. Double-click it, then click the bookmark again. |
 | Nothing happens when you double-click COAT | Wait a few seconds, then look for a new browser tab. If there's none, open `http://127.0.0.1:7171` in your browser yourself. |
+| The sidebar offers **Download** instead of **Restart to update** | COAT can't replace itself where it is: see [Updates](#updates). |
 | The Mac or Windows warning keeps coming back | Follow [the first-time steps](#the-first-time-you-open-it) exactly once; download COAT again if the file was damaged. |
 
 If something else goes wrong, COAT keeps a log file called `coat.log` in your computer's temporary

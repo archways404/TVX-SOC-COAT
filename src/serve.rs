@@ -12,9 +12,11 @@ use chrono::Local;
 use serde_json::json;
 use tiny_http::{Header, Request, Response, Server};
 
-use crate::report::{self, Options, Served, esc, page};
+use crate::report::{self, Options, Served};
+use crate::ui::{self, esc};
 use crate::source::{self, FetchOptions, Progress};
 use crate::trace::{build_trace, format_duration};
+use crate::update::Updater;
 
 /// A finished trace is reused for this long unless the user asks for a fresh fetch.
 const CACHE_FOR: Duration = Duration::from_secs(15 * 60);
@@ -61,6 +63,7 @@ pub struct ServeOptions {
 struct Context {
     port: u16,
     last_seen: Mutex<Instant>,
+    updater: Arc<Updater>,
 }
 
 pub fn run(options: ServeOptions) -> Result<(), String> {
@@ -70,8 +73,16 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
     if options.open {
         open_browser(&url);
     }
-    let context = Arc::new(Context { port, last_seen: Mutex::new(Instant::now()) });
+    let context = Arc::new(Context { port, last_seen: Mutex::new(Instant::now()), updater: Updater::new() });
     let jobs: Shared = Arc::new(Mutex::new(Jobs::default()));
+    {
+        // A downloaded update installs itself only when nobody is using COAT.
+        let (idle_context, idle_jobs) = (context.clone(), jobs.clone());
+        context.updater.run_in_background(move || {
+            let busy = idle_jobs.lock().unwrap().jobs.iter().any(|j| j.state == JobState::Running);
+            !busy && idle_context.last_seen.lock().unwrap().elapsed() >= crate::update::IDLE_BEFORE_INSTALL
+        });
+    }
     if let Some(idle) = options.idle_exit {
         let (context, jobs) = (context.clone(), jobs.clone());
         thread::spawn(move || loop {
@@ -91,6 +102,17 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
 }
 
 fn bind(options: &ServeOptions) -> Result<(Server, u16), String> {
+    // Right after an update, the previous version is still letting go of the port: wait for
+    // it rather than moving to another port (the open page and the bookmark expect this one).
+    if std::env::var_os("COAT_TAKEOVER").is_some() {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if let Ok(server) = Server::http(("127.0.0.1", options.port)) {
+                return Ok((server, options.port));
+            }
+            thread::sleep(Duration::from_millis(150));
+        }
+    }
     let attempts = if options.try_next_ports { crate::app::PORT_ATTEMPTS } else { 1 };
     let mut last_error = String::new();
     for port in options.port..options.port.saturating_add(attempts) {
@@ -140,9 +162,25 @@ fn handle(request: Request, jobs: &Shared, context: &Context) {
     let params = parse_query(query);
     let is_post = *request.method() == tiny_http::Method::Post;
     let response = match path {
-        "/" => html(200, landing(jobs, context.port)),
+        "/" => html(200, landing(context.port)),
         "/api/start" => start(jobs, &params),
         "/api/ping" => json_response(200, json!({ "app": "coat", "version": env!("CARGO_PKG_VERSION"), "port": context.port })),
+        "/api/recent" => json_response(200, recent_json(jobs)),
+        "/api/update" => json_response(200, context.updater.status_json()),
+        "/api/update/check" if is_post => {
+            let updater = context.updater.clone();
+            thread::spawn(move || updater.check());
+            json_response(200, context.updater.status_json())
+        }
+        "/api/update/install" if is_post => {
+            let updater = context.updater.clone();
+            thread::spawn(move || updater.install());
+            json_response(200, json!({ "ok": true }))
+        }
+        "/api/update/auto" if is_post => {
+            context.updater.set_auto(params.get("on").is_some_and(|v| v == "1" || v == "true"));
+            json_response(200, context.updater.status_json())
+        }
         "/api/quit" if is_post => {
             thread::spawn(|| {
                 thread::sleep(Duration::from_millis(300));
@@ -155,7 +193,7 @@ fn handle(request: Request, jobs: &Shared, context: &Context) {
             .with_header(header("Content-Type", "image/png")),
         _ if path.starts_with("/api/job/") => job_status(jobs, &path["/api/job/".len()..]),
         _ if path.starts_with("/r/") => report_page(jobs, &path["/r/".len()..]),
-        _ => html(404, page("Not found", "", "<p class='landing'>Not found. <a href='/'>Start over</a></p>", "")),
+        _ => html(404, message_page("Not found", "There's nothing here. <a href='/'>Trace a call</a>")),
     };
     let _ = request.respond(response);
 }
@@ -225,6 +263,15 @@ fn run_job(jobs: &Shared, id: usize, target: &str, scrub: bool) {
     });
 }
 
+fn recent_json(jobs: &Shared) -> serde_json::Value {
+    let state = jobs.lock().unwrap();
+    let recent: Vec<serde_json::Value> = state.jobs.iter().rev().filter(|j| j.state == JobState::Done).take(12)
+        .map(|j| json!({ "url": format!("/r/{}", j.id), "session": j.sessionid, "summary": j.summary,
+                         "outcome": j.outcome, "when": j.started_label, "scrubbed": j.scrub }))
+        .collect();
+    json!(recent)
+}
+
 fn with_job(jobs: &Shared, id: usize, change: impl FnOnce(&mut Job)) {
     if let Some(job) = jobs.lock().unwrap().jobs.iter_mut().find(|j| j.id == id) {
         change(job);
@@ -254,7 +301,7 @@ fn report_page(jobs: &Shared, id: &str) -> Response<std::io::Cursor<Vec<u8>>> {
     };
     match html_page {
         Some(page_html) => html(200, page_html.as_str().to_string()),
-        None => html(404, page("Gone", "", "<p class='landing'>That report is no longer in memory. <a href='/'>Trace a call</a></p>", "")),
+        None => html(404, message_page("Report gone", "That report is no longer in memory. <a href='/'>Trace the call again</a>")),
     }
 }
 
@@ -266,34 +313,50 @@ fn bookmarklet(port: u16) -> String {
          window.open('http://127.0.0.1:{port}/?sessionid='+m[1],'_blank')}})()")
 }
 
-fn landing(jobs: &Shared, port: u16) -> String {
-    let recent: String = {
-        let state = jobs.lock().unwrap();
-        state.jobs.iter().rev().filter(|j| j.state == JobState::Done)
-            .map(|j| format!(
-                "<a href='/r/{}'><code>{}</code><span>{}</span><span class='muted small'>{}</span><span class='when'>{}{}</span></a>",
-                j.id, esc(&j.sessionid), esc(&j.summary), esc(&j.outcome), esc(&j.started_label),
-                if j.scrub { " · scrubbed" } else { "" }))
-            .collect()
-    };
-    let recent = if recent.is_empty() { String::new() } else { format!("<div class='recent'><h2>Recent</h2>{recent}</div>") };
+const LANDING_JS: &str = include_str!("assets/landing.js");
+
+/// The start page: paste a link, watch it fetch, and the one-click bookmark.
+fn landing(port: u16) -> String {
     let body = format!(
-        "<div class='corner'><button class='ghost' id='quit' title='Stop COAT. Start it again by opening the COAT app.'>Quit COAT</button></div>\
-         <div class='landing'><img class='logo' src='{logo}' alt=''><h1>COAT</h1><p class='tag'>Call overview &amp; timeline: paste a simlog link, get the whole call.</p>\
+        "<div class='landing' id='trace'><img class='logo' src='{logo}' alt=''><h1>COAT</h1>\
+         <p class='tag'>Call overview &amp; timeline: paste a simlog link, get the whole call.</p>\
          <form class='bigsearch' id='f'><input type='text' id='q' autofocus autocomplete='off' spellcheck='false' \
          placeholder='Paste a simlog link or session id'>\
          <button type='submit'>Trace</button></form>\
          <div class='opts'><label><input type='checkbox' id='scrub'> scrub personal data</label>\
          <label><input type='checkbox' id='fresh'> don't use a cached result</label></div>\
          <div class='progress' id='progress'><div class='bar'><i></i></div><pre id='plog'></pre><div class='error' id='perr'></div></div>\
-         </div>{recent}\
-         <div class='helpcard'><h2>One click from simlog</h2>\
+         </div>\
+         <div class='helpcard' id='bookmark'><h2>One click from simlog</h2>\
          <p>Drag this button to your browser's bookmarks bar:</p>\
          <p><a class='bookmarklet' href='{bookmarklet}' onclick='event.preventDefault();alert(\"Drag this button to your bookmarks bar, don't click it here.\")'>Open in COAT</a></p>\
          <p class='muted small'>Then, on any simlog page, click <b>Open in COAT</b> in your bookmarks bar. COAT needs to be running: \
          open the COAT app first if it isn't.</p></div>",
-        bookmarklet = esc(&bookmarklet(port)), logo = report::logo_uri());
-    page("COAT", "", &body, &format!("{LANDING_JS}{QUIT_JS}"))
+        bookmarklet = esc(&bookmarklet(port)), logo = ui::logo_uri());
+    let nav = vec![ui::NavGroup {
+        label: "Start".into(),
+        items: vec![
+            nav_link("trace", "New trace", "plus"),
+            nav_link("bookmark", "One-click bookmark", "bookmark"),
+        ],
+    }];
+    ui::render(&ui::Page {
+        title: "COAT".into(), crumbs: vec!["New trace".into()], header_right: String::new(), nav, body,
+        script: LANDING_JS.into(), served: true, root: String::new(),
+    })
+}
+
+fn nav_link(id: &str, label: &str, icon: &'static str) -> ui::NavItem {
+    ui::NavItem { href: format!("#{id}"), label: label.into(), icon, spy: Some(id.into()), badge: None, children: vec![] }
+}
+
+/// A plain message page (not found, report gone) in the app's frame.
+fn message_page(title: &str, text: &str) -> String {
+    ui::render(&ui::Page {
+        title: format!("COAT · {title}"), crumbs: vec![title.into()], header_right: String::new(), nav: vec![],
+        body: format!("<div class='landing'><h1>{}</h1><p class='tag'>{text}</p></div>", esc(title)),
+        script: String::new(), served: true, root: String::new(),
+    })
 }
 
 fn html(status: u16, body: String) -> Response<std::io::Cursor<Vec<u8>>> {
@@ -343,62 +406,6 @@ fn percent_decode(text: &str) -> String {
     }
     String::from_utf8_lossy(&out).into_owned()
 }
-
-/// Shared by the landing page and served reports: the Quit button.
-pub const QUIT_JS: &str = r#"
-(() => {
-  const quit = document.querySelector('#quit');
-  if (!quit) return;
-  quit.addEventListener('click', async () => {
-    if (!confirm('Stop COAT? Open the COAT app again to start it.')) return;
-    try { await fetch('/api/quit', { method: 'POST' }); } catch (e) {}
-    document.body.innerHTML = "<div class='landing'><h1>COAT</h1><p class='tag'>COAT has stopped. You can close this tab.</p>" +
-      "<p class='muted'>To use it again, open the COAT app.</p></div>";
-  });
-})();
-"#;
-
-const LANDING_JS: &str = r#"
-(() => {
-  const $ = (s) => document.querySelector(s);
-  const form = $('#f'), input = $('#q'), scrub = $('#scrub'), fresh = $('#fresh');
-  const progress = $('#progress'), plog = $('#plog'), perr = $('#perr'), bar = $('.progress .bar');
-  async function start(target) {
-    progress.classList.add('on'); bar.style.display = ''; plog.textContent = ''; perr.textContent = '';
-    const query = `q=${encodeURIComponent(target)}&scrub=${scrub.checked ? 1 : 0}${fresh.checked ? '&fresh=1' : ''}`;
-    const response = await fetch(`/api/start?${query}`);
-    const body = await response.json();
-    if (!response.ok) return fail(body.error);
-    poll(body.job);
-  }
-  async function poll(id) {
-    const body = await (await fetch(`/api/job/${id}`)).json();
-    plog.textContent = (body.log || []).join('\n');
-    if (body.state === 'done') { location.href = body.url; return; }
-    if (body.state === 'failed' || body.error) return fail(body.error);
-    setTimeout(() => poll(id), 300);
-  }
-  function fail(message) { bar.style.display = 'none'; perr.textContent = message || 'Something went wrong'; }
-  const looksLikeCall = (text) => /sessionid=|\[LID:|^\s*[A-Za-z0-9_-]{4,64}\s*$/.test(text);
-  form.addEventListener('submit', (e) => { e.preventDefault(); if (input.value.trim()) start(input.value.trim()); });
-  // Paste a link and it starts right away, no button needed.
-  input.addEventListener('paste', () => setTimeout(() => { if (looksLikeCall(input.value)) start(input.value.trim()); }, 0));
-  // Dropping a link anywhere on the page works too.
-  document.addEventListener('dragover', (e) => e.preventDefault());
-  document.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
-    if (text && looksLikeCall(text)) { input.value = text.trim(); start(input.value); }
-  });
-  
-  const params = new URLSearchParams(location.search);
-  const preset = params.get('q') || params.get('sessionid');
-  if (params.get('scrub') === '1') scrub.checked = true;
-  if (params.has('fresh')) fresh.checked = true;
-  if (preset) { input.value = preset; history.replaceState(null, '', '/'); start(preset); }
-})();
-"#;
-
 #[cfg(test)]
 mod tests {
     use super::*;

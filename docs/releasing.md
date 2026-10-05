@@ -23,13 +23,19 @@ version ─► macos ─────┐
 
 1. **version** works out the next version number (see below). It stops the release if the
    simlog address secrets are missing, so a COAT that can't reach simlog is never published.
-2. **macos** (on a GitHub Mac) stamps the version into the build, runs the tests, builds
-   `COAT.app` for Apple Silicon and Intel, starts it the way a double-click does, checks that it
-   answers, and quits it.
+2. **macos** (on a GitHub Mac) stamps the version into the build, runs the tests, runs the
+   [update test](development.md#testing-automatic-updates) (an old COAT updates itself to a new
+   one), builds `COAT.app` for Apple Silicon and Intel, starts it the way a double-click does,
+   checks that it answers, and quits it.
 3. **windows** (on a GitHub Windows machine) does the same for `COAT.exe`.
-4. **release** publishes GitHub release `vX.Y.Z` with `COAT-macOS.zip` and `COAT.exe`, a short
-   "how to install" note, and a list of the changes since the previous release (generated from
-   merged pull requests and commit messages).
+4. **release** publishes GitHub release `vX.Y.Z` with `COAT-macOS.zip`, `COAT.exe` and
+   `SHA256SUMS.txt` (the checksums installed copies use to verify an update), a short "how to
+   install" note, and a list of the changes since the previous release (generated from merged
+   pull requests and commit messages).
+
+Builds made by this workflow are **official**: they know which repository they came from
+(`COAT_REPO`) and update themselves from its releases (`COAT_RELEASE_BUILD`). Within a few hours of
+a release, everyone's running COAT shows "Update ready" in its sidebar.
 
 The files always have the same names, so the download links in the README
 (`…/releases/latest/download/COAT.exe`) always point to the newest version.

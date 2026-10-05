@@ -20,16 +20,31 @@ replace these with placeholders instead.
 
 **Nowhere except your own computer.**
 
-- COAT fetches from simlog over the VPN. It doesn't contact any other server, and it collects no
-  usage statistics.
+- COAT fetches calls from simlog over the VPN. The only other place it contacts is GitHub, to check
+  for updates (see below). It collects no usage statistics.
 - **In the app**, traced calls are kept in memory while COAT runs, so that recent traces open
   instantly. They're gone when you click **Quit COAT**, or when COAT stops by itself after 12
-  hours without use. Nothing is written to disk.
+  hours without use. Call data is never written to disk. COAT only saves one setting (whether to
+  update automatically) in your user settings folder.
 - **In the terminal**, `coat <link>` writes the report as an HTML file (by default in a `reports`
   folder in the current directory). Delete those files when you're done with them.
 - Reports are single, self-contained files: opening one loads nothing from the internet.
 - COAT keeps a small log file, `coat.log`, in your computer's temporary folder. It records when
   COAT started and stopped and any startup errors, not which calls were traced or what was in them.
+
+## Updates
+
+A few seconds after it starts, and every six hours after that, the app asks GitHub for the latest
+release of COAT. That request contains nothing about calls: GitHub learns that a copy of COAT (and
+which version) is asking, and, like any website, your network address. When there's a new version:
+
+- it's downloaded over HTTPS from the repository's GitHub releases;
+- its SHA-256 checksum must match the `SHA256SUMS.txt` published with the release, and the new
+  program must report the expected version, or it's thrown away;
+- it's kept next to the installed app until it's installed, then the old version is removed.
+
+Only official builds (made by the release workflow) update themselves. A copy someone builds on
+their own computer never replaces itself.
 
 ## How the app is protected
 

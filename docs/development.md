@@ -120,14 +120,21 @@ iterate on the analysis with `--input ~/calls/mycall.coat.json`: it's instant an
 these files **outside the repository**: they contain real call data. (`*.coat.json` files are
 ignored by git, as a safety net.)
 
-Other useful variables: `COAT_NO_BROWSER=1` stops COAT from opening a browser (handy when testing
-the double-click mode), and `NO_COLOR=1` turns off terminal colours.
+Other variables that help while developing:
+
+| Variable | What it does |
+|---|---|
+| `COAT_NO_BROWSER=1` | Don't open a browser (handy when testing the double-click mode). |
+| `COAT_PORT=7300` | Use another port than 7171, so you can run a test copy next to your normal COAT. |
+| `COAT_SETTINGS_DIR=/tmp/coat` | Keep settings somewhere else than your real user settings. |
+| `COAT_UPDATE_URL=…` | Ask this address instead of GitHub for the latest release (used by the update test). Must be HTTPS, or HTTP to `127.0.0.1`. |
+| `NO_COLOR=1` | No colours in the terminal summary. |
 
 ## A tour of the code
 
 ```
 coat (no arguments) ─► app.rs ──► starts serve.rs in the background, opens the browser
-coat serve ──────────► serve.rs ─┐  (the web UI: start page, progress, reports)
+coat serve ──────────► serve.rs ─┐  (the web UI: start page, progress, reports; update.rs keeps it current)
 coat <link> ─────────► main.rs ──┤
                                   ▼
                        source.rs   fetch the session(s) from simlog
@@ -137,6 +144,8 @@ coat <link> ─────────► main.rs ──┤
                        trace.rs    work out steps, reasons, outcome, queue, issues → CallTrace
                                   ▼
                        report.rs (HTML page)    term.rs (terminal summary)
+                          │
+                       ui.rs       the frame around every page: sidebar, header, footer
 ```
 
 | File | What it does |
@@ -147,10 +156,13 @@ coat <link> ─────────► main.rs ──┤
 | `src/source.rs` | Talks to simlog: the addresses, paging (including the parallel fetch and its safety checks), and following linked sessions. Also the `Bundle` file format for `--save-raw`. |
 | `src/logparse.rs` | Splits one raw log line into time, machine, program, level, code location and message. |
 | `src/trace.rs` | The analysis. Builds the route from the dialplan, picks the reason for each hop, and collects activity, variables, queue details, the outcome and grouped issues. The heart of COAT. |
-| `src/report.rs` | Turns the analysis into one self-contained HTML page, with all CSS and JavaScript inline. |
+| `src/report.rs` | Turns the analysis into the report's sections (route, steps, issues, SIP ladder, log …) and the sidebar entries for them. |
+| `src/ui.rs` | The frame every page shares: the sidebar (in the style of shadcn/ui), the header with breadcrumbs, the footer with the version, the developer hover card on the logo, and the icons. |
+| `src/assets/` | The look and the browser code, as normal files: `coat.css` (all styles), `shell.js` (sidebar), `served.js` (updates, recent traces, Quit), `report.js`, `landing.js`. They're compiled into the program, so a report is still one self-contained file. |
+| `src/update.rs` | Automatic updates: asks GitHub for the latest release, downloads and verifies it, swaps it in and restarts. |
 | `src/term.rs` | The coloured terminal summary. |
 | `build.rs` | Runs before compiling: embeds the Windows icon, and rebuilds when the simlog address variables change. |
-| `packaging/` | App icons, the Mac app bundle script, and the version scripts used by the release workflow. |
+| `packaging/` | App icons, the Mac app bundle script, the version scripts used by the release workflow, and the update test. |
 | `tests/fixtures/` | A made-up call used by the tests. |
 | `.github/workflows/build.yml` | Builds, tests and releases on GitHub. See [Releasing](releasing.md). |
 
@@ -243,12 +255,25 @@ with the macro's name as the label. To give it a proper name and colour:
    to the others.
 3. `kind_color` in `src/term.rs`: the terminal colour.
 
-### Changing how the report looks
+### Changing how it looks
 
-All of the report's HTML is built in `src/report.rs`, one function per section (`route_line`,
-`step_card`, `issues`, …). The styles are in the `CSS` constant and the browser code in
-`REPORT_JS`, both in the same file. The start page is in `src/serve.rs` (`landing`). Run
-`cargo run --release -- --input <saved call> --open` to see your change.
+- **Colours, spacing, fonts**: `src/assets/coat.css`. It's ordinary CSS; the sidebar's colours are
+  the `--sidebar…` variables at the start of the app-shell part, for light and dark mode.
+- **The sidebar, header and footer**: `src/ui.rs`, with their behaviour in `src/assets/shell.js`.
+- **A section of the report**: `src/report.rs`, one function per section (`route_line`,
+  `step_card`, `issues`, …), and its browser code in `src/assets/report.js`.
+- **The start page**: `landing` in `src/serve.rs` and `src/assets/landing.js`.
+
+The asset files are read when COAT is compiled, so run `cargo run --release -- --input <saved call>
+--open` after a change to see it.
+
+### Testing automatic updates
+
+`./packaging/test-update.sh` (on a Mac, or in Git Bash on Windows) does a real update: it builds
+COAT as version 0.0.1 and as 0.0.2, publishes 0.0.2 as a fake GitHub release on your computer,
+starts 0.0.1, and checks that it downloads, verifies and installs 0.0.2, restarts as 0.0.2, and
+cleans up after itself. It uses its own port and settings folder and puts `Cargo.toml` back when
+it's done. The release workflow runs it on every build.
 
 ## Building the apps
 
@@ -266,6 +291,7 @@ All of the report's HTML is built in `src/report.rs`, one function per section (
 | Problem | Fix |
 |---|---|
 | `cargo: command not found` | Close and reopen the terminal after installing Rust. |
+| Linux: errors about `openssl` | Install OpenSSL's development files (`sudo apt install libssl-dev pkg-config`). Mac and Windows don't need anything. |
 | Mac: `linker cc not found` or `xcrun: error` | Install Apple's command-line tools: `xcode-select --install`. |
 | Windows: `link.exe not found` | Install the Visual Studio C++ build tools (rustup offers this), then reopen the terminal. |
 | COAT says it doesn't know the address of simlog | Set `COAT_SIMLOG_NORDIC` (see [Pointing COAT at simlog](#pointing-coat-at-simlog)). |

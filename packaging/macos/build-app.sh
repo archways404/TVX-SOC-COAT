@@ -12,6 +12,8 @@ APP=dist/COAT.app
 installed=$(rustup target list --installed 2>/dev/null || true)
 
 binaries=""
+# COAT_NATIVE_ONLY=1 builds just this Mac's architecture (quicker; used by the update test).
+[ -n "${COAT_NATIVE_ONLY:-}" ] && installed=""
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
   if echo "$installed" | grep -qx "$target"; then
     cargo build --release --locked --target "$target"

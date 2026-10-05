@@ -12,7 +12,10 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tiny_http = "0.12"
-ureq = { version = "3", default-features = false }
+sha2 = "0.10"
+# HTTPS only for update checks; uses the operating system's TLS (macOS Security framework,
+# Windows SChannel) and its trusted certificates. simlog itself is plain HTTP.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 
 [profile.release]
 lto = "thin"

@@ -25,6 +25,9 @@ permissions:
 env:
   COAT_SIMLOG_NORDIC: ${{ secrets.COAT_SIMLOG_NORDIC }}
   COAT_SIMLOG_UAE: ${{ secrets.COAT_SIMLOG_UAE }}
+  # Builds from this workflow are official: they update themselves from this repository's releases.
+  COAT_RELEASE_BUILD: "1"
+  COAT_REPO: ${{ github.repository }}
 
 # Releases run one at a time, so two quick merges never get the same version number.
 # Pull requests build in parallel, and a newer push to the same PR cancels the older build.
@@ -76,6 +79,8 @@ jobs:
           key: macos-cargo-${{ github.sha }}
           restore-keys: macos-cargo-
       - run: cargo test --release --locked
+      - name: Test that an old version updates itself to a new one
+        run: ./packaging/test-update.sh
       - name: Build COAT.app (Apple Silicon + Intel)
         run: ./packaging/macos/build-app.sh
       - name: Smoke test the app the way a double-click runs it
@@ -109,6 +114,8 @@ jobs:
           key: windows-cargo-${{ github.sha }}
           restore-keys: windows-cargo-
       - run: cargo test --release --locked
+      - name: Test that an old version updates itself to a new one
+        run: ./packaging/test-update.sh
       - run: cargo build --release --locked
       - run: mkdir -p dist && cp target/release/coat.exe dist/COAT.exe
       - name: Smoke test the app the way a double-click runs it
@@ -139,11 +146,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
+          # Checksums let the apps verify an update before installing it.
+          (cd dist && sha256sum COAT-macOS.zip COAT.exe > SHA256SUMS.txt)
           notes=$(printf '%s\n' \
             "**Mac:** download **COAT-macOS.zip**, double-click it, and drag COAT into Applications." \
             "**Windows:** download **COAT.exe** and double-click it." \
             "" \
-            "The first time, your computer asks whether to trust COAT. See the README for the one-time steps.")
-          gh release create "v$VERSION" dist/COAT-macOS.zip dist/COAT.exe \
+            "The first time, your computer asks whether to trust COAT. See the README for the one-time steps." \
+            "" \
+            "Already using COAT? It updates itself: look for \"Update ready\" in the sidebar.")
+          gh release create "v$VERSION" dist/COAT-macOS.zip dist/COAT.exe dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "COAT $VERSION" --notes "$notes" --generate-notes --latest

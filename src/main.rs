@@ -11,6 +11,8 @@ mod serve;
 mod source;
 mod term;
 mod trace;
+mod ui;
+mod update;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

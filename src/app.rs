@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 use crate::serve::{self, ServeOptions};
 
 pub const DEFAULT_PORT: u16 = 7171;
+/// Overrides the first port tried (used by the update test so it can't touch a real COAT).
+const PORT_ENV: &str = "COAT_PORT";
 /// Ports tried in order if 7171 is taken by something else.
 pub const PORT_ATTEMPTS: u16 = 10;
 const BACKGROUND_ENV: &str = "COAT_BACKGROUND";
@@ -32,8 +34,9 @@ impl Running {
 
 pub fn launch() -> Result<(), String> {
     if std::env::var_os(BACKGROUND_ENV).is_some() {
+        crate::update::clean_up_after_update();
         return serve::run(ServeOptions {
-            port: DEFAULT_PORT,
+            port: base_port(),
             try_next_ports: true,
             open: false,
             idle_exit: Some(IDLE_EXIT),
@@ -48,8 +51,8 @@ pub fn launch() -> Result<(), String> {
         stop(&running);
     }
 
-    let log = log_path();
-    spawn_background(&log)?;
+    let exe = std::env::current_exe().map_err(|e| format!("can't find my own executable: {e}"))?;
+    spawn_background(&exe, &[])?;
     let deadline = Instant::now() + STARTUP_WAIT;
     while Instant::now() < deadline {
         if let Some(running) = find_running() {
@@ -57,7 +60,7 @@ pub fn launch() -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(150));
     }
-    Err(format!("COAT didn't start within {}s. Details: {}", STARTUP_WAIT.as_secs(), log.display()))
+    Err(format!("COAT didn't start within {}s. Details: {}", STARTUP_WAIT.as_secs(), log_path().display()))
 }
 
 fn opened(running: &Running, what: &str) -> Result<(), String> {
@@ -75,7 +78,8 @@ pub fn find_running() -> Option<Running> {
         .http_status_as_error(true)
         .build();
     let agent = ureq::Agent::new_with_config(config);
-    (DEFAULT_PORT..DEFAULT_PORT + PORT_ATTEMPTS).find_map(|port| {
+    let first = base_port();
+    (first..first + PORT_ATTEMPTS).find_map(|port| {
         let mut response = agent.get(&format!("http://127.0.0.1:{port}/api/ping")).call().ok()?;
         let body = response.body_mut().read_to_string().ok()?;
         let ping: serde_json::Value = serde_json::from_str(&body).ok()?;
@@ -97,13 +101,22 @@ fn log_path() -> std::path::PathBuf {
     std::env::temp_dir().join("coat.log")
 }
 
-fn spawn_background(log: &std::path::Path) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("can't find my own executable: {e}"))?;
-    let log_file = std::fs::OpenOptions::new().create(true).append(true).open(log)
+/// The first port COAT uses: 7171, or `COAT_PORT` if set.
+pub fn base_port() -> u16 {
+    std::env::var(PORT_ENV).ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT)
+}
+
+/// Start `exe` as a detached background COAT (web UI only, no terminal window).
+pub fn spawn_background(exe: &std::path::Path, extra_env: &[(&str, &str)]) -> Result<(), String> {
+    let log = log_path();
+    let log_file = std::fs::OpenOptions::new().create(true).append(true).open(&log)
         .map_err(|e| format!("can't open {}: {e}", log.display()))?;
     let log_err = log_file.try_clone().map_err(|e| e.to_string())?;
     let mut command = Command::new(exe);
     command.env(BACKGROUND_ENV, "1").stdin(Stdio::null()).stdout(log_file).stderr(log_err);
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
     detach(&mut command);
     command.spawn().map(|_| ()).map_err(|e| format!("couldn't start COAT in the background: {e}"))
 }
