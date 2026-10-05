@@ -231,6 +231,10 @@ section[id],.hero{scroll-margin-top:4rem}
 .site-footer a{color:var(--muted)}.site-footer a:hover{color:var(--ink)}
 .site-footer .grow{flex:1}
 #foot-update:not(:empty)::before{content:" · "}
+.inset-header .badge svg{width:12px;height:12px;vertical-align:-1px;margin-right:2px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.keep-btn{cursor:pointer;font:inherit;font-size:11px;display:inline-flex;align-items:center;gap:2px}
+.keep-btn:hover{border-color:var(--accent);color:var(--accent)}
+.keep-btn:disabled{opacity:.6;cursor:wait}
 .inset-header .badge{white-space:nowrap}
 .sb-backdrop{display:none}
 /* phones and narrow windows: the sidebar becomes a sheet */

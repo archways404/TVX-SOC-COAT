@@ -124,6 +124,38 @@
   }
   loadRecent();
 
+  // ---- keep long-term ------------------------------------------------------------------------
+  const keep = $('#keep[data-job]');
+  const showKept = (until) => {
+    const pill = document.createElement('span');
+    pill.className = 'badge ok'; pill.id = 'keep'; pill.title = `simlog keeps this call until ${until}`;
+    pill.innerHTML = `${icon('archive')} kept until ${esc(until)}`;
+    keep.replaceWith(pill);
+    const stored = $('#stored-until');
+    if (stored) stored.textContent = `kept long-term in simlog, until ${until}`;
+  };
+  if (keep) {
+    // The page may be older than a "keep" done from another tab.
+    fetch(`/api/longterm?job=${keep.dataset.job}`).then((r) => r.json()).then((s) => { if (s.kept) showKept(s.until); }).catch(() => {});
+    keep.addEventListener('click', async () => {
+      const ok = confirm('Keep this call in simlog for about 10 years instead of a few weeks?\n\n' +
+        'This keeps all of its sessions, including personal data like phone numbers. Only do this when you need the call later, ' +
+        'for example for an open case.');
+      if (!ok) return;
+      keep.disabled = true; keep.textContent = 'Keeping…';
+      try {
+        const response = await fetch(`/api/longterm?job=${keep.dataset.job}`, { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || !result.kept) throw new Error(result.error || 'simlog did not confirm');
+        showKept(result.until);
+        if (result.warnings?.length) alert(`simlog says: ${result.warnings.join(' ')}`);
+      } catch (e) {
+        keep.disabled = false; keep.innerHTML = `${icon('archive')} Keep long-term`;
+        alert(`Couldn't keep the call long-term: ${e.message}`);
+      }
+    });
+  }
+
   // ---- quit ----------------------------------------------------------------------------------
   $('#quit')?.addEventListener('click', async () => {
     if (!confirm('Stop COAT? Open the COAT app again to start it.')) return;

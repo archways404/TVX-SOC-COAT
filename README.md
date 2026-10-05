@@ -1,5 +1,10 @@
 # COAT: Call Overview And Timeline
 
+[![Latest release](https://img.shields.io/github/v/release/archways404/TVX-SOC-COAT?label=COAT&color=4263eb)](https://github.com/archways404/TVX-SOC-COAT/releases/latest)
+[![Latest preview](https://img.shields.io/github/v/release/archways404/TVX-SOC-COAT?include_prereleases&filter=*preview*&label=preview&color=2f9e44)](https://github.com/archways404/TVX-SOC-COAT/releases)
+[![Build](https://github.com/archways404/TVX-SOC-COAT/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/archways404/TVX-SOC-COAT/actions/workflows/build.yml)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-555)](docs/user-guide.md#installing-coat)
+
 <img src="packaging/logo-160.png" alt="COAT icon: a coat on a hanger whose buttons form a call route" width="96" align="right">
 
 COAT explains what happened to a phone call. Give it a link from **simlog**, Telavox's internal
@@ -22,15 +27,21 @@ turns them into a short story.
 
 COAT runs on **Mac** and **Windows**. You need to be connected to the Telavox **VPN**.
 
-| Your computer | Download | Then |
-|---|---|---|
-| Mac | [COAT-macOS.zip](https://github.com/archways404/TVX-SOC-COAT/releases/latest/download/COAT-macOS.zip) | Double-click to unzip, and drag **COAT** into Applications. |
-| Windows | [COAT.exe](https://github.com/archways404/TVX-SOC-COAT/releases/latest/download/COAT.exe) | Put it somewhere handy, for example the desktop. |
+Open the **[newest release](https://github.com/archways404/TVX-SOC-COAT/releases/latest)** and, under **Assets**, download:
 
-These links always give you the newest version. Want to try what's coming next? There's also
-[COAT Preview](docs/user-guide.md#coat-preview), a green preview app that installs next to COAT.
-The first time you open COAT your computer asks whether to trust it. The [user guide](docs/user-guide.md#the-first-time-you-open-it) shows the
-one-time steps.
+| Your computer | File | Then |
+|---|---|---|
+| Mac | `COAT_v1.2.3.zip` (with the newest version number) | Double-click to unzip, and drag **COAT** into Applications. |
+| Windows | `COAT_v1.2.3.exe` | Put it somewhere handy, for example the desktop. |
+
+Or, on a Mac with [Homebrew](https://brew.sh): `brew install --cask archways404/tap/coat`.
+
+The first time you open COAT your computer asks whether to trust it. The
+[user guide](docs/user-guide.md#the-first-time-you-open-it) shows the one-time steps. After that,
+COAT keeps itself up to date.
+
+Want to try what's coming next? [COAT Preview](docs/user-guide.md#coat-preview) is a green preview
+app that installs next to COAT. Its files end in `_PREVIEW`.
 
 ## Use it
 
@@ -39,7 +50,8 @@ one-time steps.
 3. Read the report. Use **Copy route as text** to paste the short version into a ticket.
 
 To stop COAT, click **Quit COAT** in the page. There's also a one-click bookmark for opening any
-simlog page in COAT: see the [user guide](docs/user-guide.md#one-click-from-simlog).
+simlog page in COAT: see the [user guide](docs/user-guide.md#one-click-from-simlog). Need the call
+later? **Keep long-term** in the report keeps it in simlog for about 10 years instead of a few weeks.
 
 ## Documentation
 

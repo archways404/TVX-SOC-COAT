@@ -93,6 +93,7 @@ pub fn icon(name: &str) -> &'static str {
         "info" => "<svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='9'/><path d='M12 16v-4M12 8h.01'/></svg>",
         "github" => "<svg viewBox='0 0 24 24'><path d='M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.1-1.3-.3-2.5-1-3.5.3-1.2.3-2.4 0-3.5 0 0-1 0-3 1.5-2.6-.5-5.4-.5-8 0C6 2 5 2 5 2c-.3 1.1-.3 2.3 0 3.5-.7 1-1.1 2.2-1 3.5 0 3.5 3 5.5 6 5.5-.4.5-.7 1-.8 1.6-.2.6-.3 1.3-.2 1.9v4'/><path d='M9 18c-4.5 2-5-2-7-2'/></svg>",
         "chevron" => "<svg viewBox='0 0 24 24'><path d='m9 18 6-6-6-6'/></svg>",
+        "archive" => "<svg viewBox='0 0 24 24'><rect x='2' y='3' width='20' height='5' rx='1'/><path d='M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4'/></svg>",
         _ => "",
     }
 }
@@ -250,7 +251,7 @@ fn footer(page: &Page) -> String {
 
 /// Icons the browser code reuses when it redraws the update widget.
 fn icon_templates() -> String {
-    ["info", "check", "download", "refresh", "alert"].iter()
+    ["info", "check", "download", "refresh", "alert", "archive"].iter()
         .map(|name| format!("<template id=\"icon-{name}\">{}</template>", icon(name)))
         .collect()
 }
@@ -270,7 +271,8 @@ mod tests {
     #[test]
     fn every_icon_used_exists() {
         for name in ["panel", "search", "overview", "route", "clock", "steps", "alert", "braces", "ladder", "chart",
-                     "log", "plus", "bookmark", "history", "power", "refresh", "download", "check", "info", "github", "chevron"] {
+                     "log", "plus", "bookmark", "history", "power", "refresh", "download", "check", "info", "github", "chevron",
+                     "archive"] {
             assert!(icon(name).starts_with("<svg"), "missing icon {name}");
         }
     }

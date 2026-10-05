@@ -17,10 +17,12 @@ esac
 
 channel=${COAT_CHANNEL:-stable}
 if [ "$channel" = preview ]; then
-  old=0.0.1-preview.1 new=0.0.1-preview.2 name="COAT Preview" exe=COAT-PREVIEW.exe zip=COAT-PREVIEW-macOS.zip
+  old=0.0.1-preview.1 new=0.0.1-preview.2 name="COAT Preview" suffix=_PREVIEW
 else
-  old=0.0.1 new=0.0.2 name=COAT exe=COAT.exe zip=COAT-macOS.zip
+  old=0.0.1 new=0.0.2 name=COAT suffix=
 fi
+# Files are named after their version; a Windows COAT named that way is renamed when it updates.
+old_exe="COAT_v$old$suffix.exe" new_exe="COAT_v$new$suffix.exe" zip="COAT_v$new$suffix.zip"
 port=7350 release_port=8765
 work=$(mktemp -d)
 api="http://127.0.0.1:$port"
@@ -30,6 +32,8 @@ cleanup() {
   curl -fsS -X POST "$api/api/quit" >/dev/null 2>&1 || true
   if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
   cp "$work/Cargo.toml.orig" Cargo.toml; cp "$work/Cargo.lock.orig" Cargo.lock
+  # The test builds must not end up next to the real ones (CI publishes what's in dist/).
+  if [ "$os" = mac ]; then rm -rf "dist/$name.app" "dist/COAT_v$old$suffix.zip" "dist/$zip"; fi
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -47,12 +51,12 @@ build "$old"
 if [ "$os" = mac ]; then
   cp -R "dist/$name.app" "$work/apps/$name.app"; installed="$work/apps/$name.app/Contents/MacOS/coat"; asset=$zip
 else
-  cp target/release/coat.exe "$work/apps/$exe"; installed="$work/apps/$exe"; asset=$exe
+  cp target/release/coat.exe "$work/apps/$old_exe"; installed="$work/apps/$old_exe"; asset=$new_exe
 fi
 
 echo "== building the new version ($new) and publishing it as a fake release"
 build "$new"
-if [ "$os" = mac ]; then cp "dist/$zip" "$work/release/"; else cp target/release/coat.exe "$work/release/$exe"; fi
+if [ "$os" = mac ]; then cp "dist/$zip" "$work/release/"; else cp target/release/coat.exe "$work/release/$new_exe"; fi
 ( cd "$work/release"
   if command -v sha256sum >/dev/null; then sha256sum "$asset"; else shasum -a 256 "$asset"; fi > SHA256SUMS.txt
   release="{\"tag_name\": \"v$new\", \"prerelease\": $([ "$channel" = preview ] && echo true || echo false),
@@ -92,6 +96,10 @@ curl -fsS -X POST "$api/api/update/install" >/dev/null
 wait_for 60 "the new version to answer" version_is "$new"
 
 echo "== checking what's on disk"
+if [ "$os" = windows ]; then
+  [ ! -e "$installed" ] || { echo "FAILED: $old_exe should have been replaced by $new_exe"; exit 1; }
+  installed="$work/apps/$new_exe"
+fi
 on_disk=$("$installed" --version)
 [ "$on_disk" = "coat $new" ] || { echo "FAILED: installed program reports '$on_disk'"; exit 1; }
 leftovers_gone() { ! ls -A "$work/apps" | grep -qiE -- '-old\.app|-update$|\.old\.exe|\.new\.exe'; }

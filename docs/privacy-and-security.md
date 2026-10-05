@@ -32,6 +32,13 @@ replace these with placeholders instead.
 - COAT keeps a small log file, `coat.log`, in your computer's temporary folder. It records when
   COAT started and stopped and any startup errors, not which calls were traced or what was in them.
 
+## Keeping calls long-term
+
+Simlog deletes calls after a few weeks. **Keep long-term** in a report (or `coat <link> --keep`)
+asks simlog to keep every session of that call for about 10 years, personal data included. COAT
+only does this when you click the button and confirm; it never keeps calls by itself. Use it only
+for calls you'll need, such as one tied to an open case.
+
 ## Updates
 
 A few seconds after it starts, and every six hours after that, the app asks GitHub for the latest

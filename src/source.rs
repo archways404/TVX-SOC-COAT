@@ -90,6 +90,15 @@ impl Session {
         }
     }
 
+    /// How much longer simlog keeps this session, in seconds, as of when it was fetched.
+    pub fn ttl_seconds(&self) -> Option<u64> {
+        self.meta.get("ttl").and_then(Value::as_u64)
+    }
+
+    pub fn is_long_term(&self) -> bool {
+        self.meta.get("islongterm").and_then(Value::as_bool).unwrap_or(false)
+    }
+
     pub fn startdate(&self) -> String {
         self.meta.get("startdate").and_then(Value::as_str).unwrap_or("").to_string()
     }
@@ -476,6 +485,22 @@ fn dedupe(items: Vec<Value>) -> Vec<Value> {
         .collect()
 }
 
+/// What simlog answered when asked to keep a session long-term.
+#[derive(Debug, Clone, Serialize)]
+pub struct LongTerm {
+    pub sessionid: String,
+    pub kept: bool,
+    pub ttl_seconds: u64,
+    pub warning: String,
+}
+
+/// Mark sessions for long-term storage in simlog (about ten years instead of a few weeks), the
+/// same as simlog's own "Mark for long term storage" button.
+pub fn keep_long_term(base_url: &str, sessionids: &[String]) -> Result<Vec<LongTerm>> {
+    let client = Client::new();
+    sessionids.iter().map(|id| client.keep_long_term(base_url, id)).collect()
+}
+
 /// HTTP access to simlog.
 #[derive(Clone)]
 pub struct Client {
@@ -490,6 +515,20 @@ impl Client {
             .http_status_as_error(true)
             .build();
         Client { agent: ureq::Agent::new_with_config(config) }
+    }
+
+    fn keep_long_term(&self, base: &str, sessionid: &str) -> Result<LongTerm> {
+        let url = format!("{base}/longtermstore?sessionid={sessionid}");
+        let mut response = self.agent.get(&url).header("Accept", "application/json").call()
+            .map_err(|e| describe_http_error(e, &url))?;
+        let text = response.body_mut().read_to_string().map_err(|e| describe_http_error(e, &url))?;
+        let value: Value = serde_json::from_str(&text).map_err(|e| CoatError(format!("Bad JSON from simlog: {e}")))?;
+        Ok(LongTerm {
+            sessionid: sessionid.to_string(),
+            kept: value["islongterm"].as_bool().unwrap_or(false),
+            ttl_seconds: value["ttl"].as_u64().unwrap_or(0),
+            warning: value["warning"].as_str().unwrap_or("").to_string(),
+        })
     }
 
     fn page(&self, base: &str, sessionid: &str, scrub: bool, after_row: Option<usize>) -> Result<Page> {
