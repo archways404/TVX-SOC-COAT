@@ -220,8 +220,8 @@ COAT can't update itself when:
 
 - **Mac**: it isn't in your **Applications** folder (for example, you opened it straight from
   Downloads). Move it to Applications and open it again.
-- **Windows**: it's in a folder you're not allowed to change. Move `COAT.exe` to, for example, your
-  desktop or Documents.
+- **Windows**: it's in a folder you're not allowed to change. Move the COAT program (`COAT_v….exe`)
+  to, for example, your desktop or Documents.
 
 Every update is checked against a fingerprint (a SHA-256 checksum) published with the release before
 it's installed, so a damaged or tampered download is never used.
@@ -254,6 +254,7 @@ everyone, so a few people can try it first. You'll recognise it by its **green s
 | *"This copy of COAT doesn't know the address of the … simlog"* | You have an unofficial build. Download COAT from the links above. |
 | The **Open in COAT** bookmark says the page can't be reached | COAT isn't running. Double-click it, then click the bookmark again. |
 | Nothing happens when you double-click COAT | Wait a few seconds, then look for a new browser tab. If there's none, open `http://127.0.0.1:7171` in your browser yourself. |
+| The sidebar says **Checking for updates…** and never changes | COAT 1.1.0 and older have a bug that stops them from reaching GitHub. Download the newest version by hand once ([Installing COAT](#installing-coat)); from 1.1.1 on it updates itself again. |
 | The sidebar offers **Download** instead of **Restart to update** | COAT can't replace itself where it is: see [Updates](#updates). |
 | The Mac or Windows warning keeps coming back | Follow [the first-time steps](#the-first-time-you-open-it) exactly once; download COAT again if the file was damaged. |
 
